@@ -78,11 +78,11 @@ function Header({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
         {mobileMenuOpen && (
           <div className="md:hidden py-4 border-t border-gray-100">
             <nav className="flex flex-col gap-3">
-              <a href="#tool" className="text-sm font-medium text-gray-600 px-2 py-1">Generator</a>
-              <a href="#features" className="text-sm font-medium text-gray-600 px-2 py-1">Features</a>
-              <a href="#pricing" className="text-sm font-medium text-gray-600 px-2 py-1">vs Paid Tools</a>
-              <a href="#faq" className="text-sm font-medium text-gray-600 px-2 py-1">FAQ</a>
-              <button onClick={() => onNavigate('about')} className="text-sm font-medium text-gray-600 px-2 py-1 text-left">About</button>
+              <a href="#tool" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">Generator</a>
+              <a href="#features" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">Features</a>
+              <a href="#pricing" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">vs Paid Tools</a>
+              <a href="#faq" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">FAQ</a>
+              <button onClick={() => { onNavigate('about'); setMobileMenuOpen(false); }} className="text-sm font-medium text-gray-600 px-2 py-1 text-left">About</button>
             </nav>
           </div>
         )}
@@ -94,38 +94,38 @@ function Header({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
 // Hero Section
 function HeroSection() {
   return (
-    <section className="py-16 sm:py-24 bg-gradient-to-b from-orange-50/50 to-white">
+    <section className="py-12 sm:py-16 lg:py-24 bg-gradient-to-b from-orange-50/50 to-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        <div className="inline-flex items-center gap-2 bg-orange-100 text-orange-700 px-4 py-2 rounded-full text-sm font-medium mb-4">
+        <div className="inline-flex items-center gap-2 bg-orange-100 text-orange-700 px-3 sm:px-4 py-2 rounded-full text-xs sm:text-sm font-medium mb-4">
           <i className="fas fa-star text-xs"></i>
           Trusted by 10,000+ Amazon Sellers
         </div>
-        <div className="inline-flex items-center gap-1.5 text-xs text-gray-400 font-medium mb-6">
+        <div className="inline-flex items-center gap-1.5 text-xs text-gray-400 font-medium mb-6 block">
           <i className="fas fa-microchip"></i>
           Powered by <span className="font-semibold text-gray-600">ZuniTech</span>
         </div>
-        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 leading-tight mb-6">
+        <h1 className="text-3xl sm:text-4xl lg:text-6xl font-bold text-gray-900 leading-tight mb-4 sm:mb-6">
           Free AI Amazon<br />
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-amber-500">
             Listing Generator
           </span>
         </h1>
-        <p className="text-lg sm:text-xl text-gray-600 max-w-2xl mx-auto mb-8">
+        <p className="text-base sm:text-lg lg:text-xl text-gray-600 max-w-2xl mx-auto mb-6 sm:mb-8 px-2">
           Generate professional product titles, bullet points & descriptions in seconds. 
           No signup required. No credit card. 100% free forever.
         </p>
-        <div className="flex flex-wrap justify-center gap-4 mb-8">
-          <a href="#tool" className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-3 rounded-lg font-semibold transition-all shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40">
+        <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 mb-6 sm:mb-8 px-4">
+          <a href="#tool" className="bg-orange-500 hover:bg-orange-600 text-white px-6 sm:px-8 py-3 rounded-lg font-semibold transition-all shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40 text-center">
             <i className="fas fa-rocket mr-2"></i> Generate Free Listing
           </a>
-          <a href="#pricing" className="border border-gray-300 hover:border-orange-300 text-gray-700 px-8 py-3 rounded-lg font-semibold transition-all">
+          <a href="#pricing" className="border border-gray-300 hover:border-orange-300 text-gray-700 px-6 sm:px-8 py-3 rounded-lg font-semibold transition-all text-center">
             See vs $99/mo Tools
           </a>
         </div>
-        <div className="flex flex-wrap justify-center gap-6 text-sm text-gray-500">
+        <div className="flex flex-wrap justify-center gap-3 sm:gap-6 text-xs sm:text-sm text-gray-500">
           <span><i className="fas fa-check text-green-500 mr-1"></i> No Login</span>
           <span><i className="fas fa-check text-green-500 mr-1"></i> No Limits</span>
-          <span><i className="fas fa-check text-green-500 mr-1"></i> Amazon + Etsy + Shopify</span>
+          <span><i className="fas fa-check text-green-500 mr-1"></i> Multi-Platform</span>
           <span><i className="fas fa-check text-green-500 mr-1"></i> SEO Optimized</span>
         </div>
       </div>
@@ -137,7 +137,7 @@ function HeroSection() {
 function AdBanner({ slot }: { slot: string }) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-      <div className="bg-gray-50 border border-dashed border-gray-200 rounded-lg h-24 flex items-center justify-center">
+      <div className="bg-gray-50 border border-dashed border-gray-200 rounded-lg h-20 sm:h-24 flex items-center justify-center">
         <span className="text-xs text-gray-400 uppercase tracking-wider">Advertisement — {slot}</span>
       </div>
     </div>
@@ -155,6 +155,8 @@ function ToolSection() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [output, setOutput] = useState<ListingOutput | null>(null);
   const [creditsUsed, setCreditsUsed] = useState(0);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const categories = [
     'Electronics & Gadgets',
@@ -186,54 +188,179 @@ function ToolSection() {
 
   const generateListing = async () => {
     if (!productName.trim()) {
-      alert('Please enter a product name');
+      setError('Please enter a product name');
       return;
     }
 
+    setError(null);
     setIsGenerating(true);
     setOutput(null);
 
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 2500));
+    try {
+      // Try calling the real API first
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          productName,
+          category,
+          keyFeatures,
+          targetAudience,
+          tone,
+          platform,
+        }),
+      });
 
-    // Generate mock output (later this will be connected to OpenRouter API)
-    const generatedOutput: ListingOutput = {
-      title: generateTitle(productName, category, platform),
-      bulletPoints: generateBulletPoints(productName, keyFeatures, targetAudience, tone),
-      description: generateDescription(productName, keyFeatures, targetAudience, tone, category),
-      searchTerms: generateSearchTerms(productName, category),
-    };
+      if (response.ok) {
+        const data = await response.json();
+        setOutput(data);
+      } else {
+        // Fallback to mock data if API fails
+        console.warn('API call failed, using mock data');
+        const mockOutput = generateMockListing();
+        setOutput(mockOutput);
+      }
+    } catch (err) {
+      // Fallback to mock data on network error
+      console.warn('Network error, using mock data:', err);
+      const mockOutput = generateMockListing();
+      setOutput(mockOutput);
+    }
 
-    setOutput(generatedOutput);
     setIsGenerating(false);
     setCreditsUsed(prev => prev + 1);
   };
 
+  // Mock listing generator (fallback)
+  const generateMockListing = (): ListingOutput => {
+    const prefixes: Record<string, string> = {
+      amazon: '【2026 Upgraded】',
+      etsy: '✨ Handcrafted',
+      shopify: 'Premium',
+    };
+    const suffixes: Record<string, string> = {
+      amazon: '- Perfect Gift for Men & Women | Fast Shipping',
+      etsy: '| Unique Gift Idea | Made with Love',
+      shopify: '| Free Shipping | 30-Day Returns',
+    };
+
+    const prefix = prefixes[platform] || prefixes.amazon;
+    const suffix = suffixes[platform] || suffixes.amazon;
+    const catTag = category ? `| ${category}` : '';
+
+    const featureList = keyFeatures ? keyFeatures.split(',').map(f => f.trim()).filter(Boolean) : ['Premium quality', 'Easy to use', 'Durable design'];
+    const toneOpeners: Record<string, string[]> = {
+      professional: ['ENGINEERED FOR', 'DESIGNED WITH', 'BUILT TO', 'CERTIFIED', 'BACKED BY'],
+      friendly: ['You\'ll love how', 'Perfect for', 'Great news —', 'We made sure', 'Enjoy the'],
+      luxury: ['EXQUISITE', 'PREMIUM', 'CRAFTED WITH', 'EXCEPTIONAL', 'DISTINGUISHED'],
+      urgent: ['⚡ LIMITED:', '🔥 HOT:', '✅ MUST-HAVE:', '💎 BEST:', '🎯 TOP'],
+    };
+    const openers = toneOpeners[tone] || toneOpeners.professional;
+    const audienceTag = targetAudience ? ` — ideal for ${targetAudience}` : '';
+
+    const bullets = featureList.slice(0, 5).map((feature, idx) => {
+      const opener = openers[idx % openers.length];
+      return `${opener} ${feature.toUpperCase()}${audienceTag}. Experience the difference with ${productName} — trusted by thousands of satisfied customers worldwide.`;
+    });
+    while (bullets.length < 5) {
+      bullets.push(`${openers[bullets.length % openers.length]} QUALITY GUARANTEE — Every ${productName} undergoes rigorous testing. If you're not 100% satisfied, our support team is here.`);
+    }
+
+    const audienceText = targetAudience ? `Designed specifically for ${targetAudience}` : 'Designed for everyone who values quality';
+    const featureText = keyFeatures ? `Featuring ${keyFeatures.slice(0, 100)}` : 'Featuring premium materials and innovative design';
+    const description = `${audienceText}, the ${productName} sets a new standard in ${category || 'its category'}. ${featureText}, this product delivers exceptional performance that exceeds expectations.\n\nWhether you're upgrading from a basic model or discovering this category for the first time, ${productName} combines cutting-edge technology with user-friendly design.\n\nJoin thousands of satisfied customers who have made the switch. Order today and experience the difference.`;
+
+    const words = productName.toLowerCase().split(' ');
+    const searchTerms = [
+      `${productName.toLowerCase()} gift`,
+      `best ${productName.toLowerCase()} 2026`,
+      `${productName.toLowerCase()} for sale`,
+      `cheap ${productName.toLowerCase()}`,
+      `${productName.toLowerCase()} review`,
+      ...(category ? [`${category.toLowerCase()} ${words[0]}`, `top rated ${category.toLowerCase()}`] : []),
+    ].slice(0, 8);
+
+    return {
+      title: `${prefix} ${productName} ${catTag} ${suffix}`.slice(0, 200),
+      bulletPoints: bullets,
+      description,
+      searchTerms,
+    };
+  };
+
+  // Copy to clipboard function
+  const copyToClipboard = async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch (err) {
+      // Fallback for older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    }
+  };
+
+  // Copy all content
+  const copyAll = () => {
+    if (!output) return;
+    const allContent = `PRODUCT TITLE:\n${output.title}\n\nBULLET POINTS:\n${output.bulletPoints.map((b, i) => `${i + 1}. ${b}`).join('\n')}\n\nDESCRIPTION:\n${output.description}\n\nSEARCH TERMS:\n${output.searchTerms.join(', ')}`;
+    copyToClipboard(allContent, 'all');
+  };
+
+  // Download as text file
+  const downloadAsText = () => {
+    if (!output) return;
+    const content = `PRODUCT LISTING - Generated by ListingAI (by ZuniTech)\n${'='.repeat(50)}\n\nPRODUCT TITLE:\n${output.title}\n\nBULLET POINTS:\n${output.bulletPoints.map((b, i) => `${i + 1}. ${b}`).join('\n\n')}\n\nDESCRIPTION:\n${output.description}\n\nSEARCH TERMS:\n${output.searchTerms.join(', ')}\n\n${'='.repeat(50)}\nGenerated at: ${new Date().toLocaleString()}`;
+    
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${productName.replace(/\s+/g, '-').toLowerCase()}-listing.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <section id="tool" className="py-16 bg-white">
+    <section id="tool" className="py-12 sm:py-16 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-12">
-          <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+        <div className="text-center mb-8 sm:mb-12">
+          <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">
             Generate Your Listing Now
           </h2>
-          <p className="text-gray-600 max-w-xl mx-auto">
+          <p className="text-sm sm:text-base text-gray-600 max-w-xl mx-auto px-2">
             Fill in your product details below and get a complete, SEO-optimized listing in seconds.
           </p>
-          <div className="mt-4 inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full text-sm">
+          <div className="mt-4 inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full text-xs sm:text-sm">
             <i className="fas fa-coins"></i>
             <span>Credits used today: <strong>{creditsUsed}</strong> / 5 free</span>
           </div>
         </div>
 
-        <div className="grid lg:grid-cols-2 gap-8">
+        <div className="grid lg:grid-cols-2 gap-6 lg:gap-8">
           {/* Input Form */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 sm:p-8 shadow-sm">
-            <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center gap-2">
+          <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-sm">
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 sm:mb-6 flex items-center gap-2">
               <i className="fas fa-edit text-orange-500"></i>
               Product Details
             </h3>
 
-            <div className="space-y-5">
+            {error && (
+              <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                <i className="fas fa-exclamation-circle mr-2"></i> {error}
+              </div>
+            )}
+
+            <div className="space-y-4 sm:space-y-5">
               {/* Product Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -244,7 +371,7 @@ function ToolSection() {
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
                   placeholder="e.g., Wireless Bluetooth Earbuds"
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all text-gray-900 placeholder:text-gray-400"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all text-gray-900 placeholder:text-gray-400 text-sm sm:text-base"
                 />
               </div>
 
@@ -256,7 +383,7 @@ function ToolSection() {
                 <select
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all text-gray-900 bg-white"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all text-gray-900 bg-white text-sm sm:text-base"
                 >
                   <option value="">Select a category</option>
                   {categories.map(cat => (
@@ -270,12 +397,12 @@ function ToolSection() {
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   Platform
                 </label>
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-3 gap-2 sm:gap-3">
                   {platforms.map(p => (
                     <button
                       key={p.value}
                       onClick={() => setPlatform(p.value)}
-                      className={`px-4 py-3 rounded-lg border-2 text-sm font-medium transition-all ${
+                      className={`px-2 sm:px-4 py-2.5 sm:py-3 rounded-lg border-2 text-xs sm:text-sm font-medium transition-all ${
                         platform === p.value
                           ? 'border-orange-500 bg-orange-50 text-orange-700'
                           : 'border-gray-200 text-gray-600 hover:border-gray-300'
@@ -295,9 +422,9 @@ function ToolSection() {
                 <textarea
                   value={keyFeatures}
                   onChange={(e) => setKeyFeatures(e.target.value)}
-                  placeholder="e.g., 40hr battery, noise cancelling, IPX7 waterproof, touch controls..."
+                  placeholder="e.g., 40hr battery, noise cancelling, IPX7 waterproof..."
                   rows={3}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all text-gray-900 placeholder:text-gray-400 resize-none"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all text-gray-900 placeholder:text-gray-400 resize-none text-sm sm:text-base"
                 />
               </div>
 
@@ -310,8 +437,8 @@ function ToolSection() {
                   type="text"
                   value={targetAudience}
                   onChange={(e) => setTargetAudience(e.target.value)}
-                  placeholder="e.g., fitness enthusiasts, commuters, students"
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all text-gray-900 placeholder:text-gray-400"
+                  placeholder="e.g., fitness enthusiasts, commuters"
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-all text-gray-900 placeholder:text-gray-400 text-sm sm:text-base"
                 />
               </div>
 
@@ -325,7 +452,7 @@ function ToolSection() {
                     <button
                       key={t.value}
                       onClick={() => setTone(t.value)}
-                      className={`px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all ${
+                      className={`px-2 sm:px-3 py-2 sm:py-2.5 rounded-lg border-2 text-xs sm:text-sm font-medium transition-all ${
                         tone === t.value
                           ? 'border-orange-500 bg-orange-50 text-orange-700'
                           : 'border-gray-200 text-gray-600 hover:border-gray-300'
@@ -341,12 +468,12 @@ function ToolSection() {
               <button
                 onClick={generateListing}
                 disabled={isGenerating}
-                className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:from-gray-400 disabled:to-gray-400 text-white py-4 rounded-lg font-semibold text-lg transition-all shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40 disabled:shadow-none flex items-center justify-center gap-2"
+                className="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:from-gray-400 disabled:to-gray-400 text-white py-3 sm:py-4 rounded-lg font-semibold text-base sm:text-lg transition-all shadow-lg shadow-orange-500/25 hover:shadow-orange-500/40 disabled:shadow-none flex items-center justify-center gap-2"
               >
                 {isGenerating ? (
                   <>
                     <i className="fas fa-spinner fa-spin"></i>
-                    Generating Your Listing...
+                    Generating...
                   </>
                 ) : (
                   <>
@@ -363,51 +490,69 @@ function ToolSection() {
           </div>
 
           {/* Output Section */}
-          <div className="bg-white border border-gray-200 rounded-2xl p-6 sm:p-8 shadow-sm">
-            <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center gap-2">
+          <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-6 lg:p-8 shadow-sm">
+            <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-4 sm:mb-6 flex items-center gap-2">
               <i className="fas fa-file-alt text-orange-500"></i>
               Generated Listing
             </h3>
 
             {isGenerating && (
-              <div className="flex flex-col items-center justify-center py-16">
-                <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4 animate-pulse">
-                  <i className="fas fa-robot text-orange-500 text-2xl"></i>
+              <div className="flex flex-col items-center justify-center py-12 sm:py-16">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4 animate-pulse">
+                  <i className="fas fa-robot text-orange-500 text-xl sm:text-2xl"></i>
                 </div>
-                <p className="text-gray-600 font-medium">AI is writing your listing...</p>
-                <p className="text-sm text-gray-400 mt-1">Optimizing for {platform} SEO</p>
+                <p className="text-gray-600 font-medium text-sm sm:text-base">AI is writing your listing...</p>
+                <p className="text-xs sm:text-sm text-gray-400 mt-1">Optimizing for {platform} SEO</p>
               </div>
             )}
 
             {!isGenerating && !output && (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
-                  <i className="fas fa-arrow-left text-gray-400 text-xl"></i>
+              <div className="flex flex-col items-center justify-center py-12 sm:py-16 text-center">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                  <i className="fas fa-arrow-left text-gray-400 text-lg sm:text-xl"></i>
                 </div>
-                <p className="text-gray-500 font-medium">Your listing will appear here</p>
-                <p className="text-sm text-gray-400 mt-1">Fill in product details and click Generate</p>
+                <p className="text-gray-500 font-medium text-sm sm:text-base">Your listing will appear here</p>
+                <p className="text-xs sm:text-sm text-gray-400 mt-1">Fill in product details and click Generate</p>
               </div>
             )}
 
             {!isGenerating && output && (
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 {/* Title */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm font-semibold text-gray-700">Product Title</label>
-                    <span className="text-xs text-gray-400">{output.title.length}/200 chars</span>
+                    <label className="text-xs sm:text-sm font-semibold text-gray-700">Product Title</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400">{output.title.length}/200</span>
+                      <button
+                        onClick={() => copyToClipboard(output.title, 'title')}
+                        className="text-xs text-orange-500 hover:text-orange-600 font-medium flex items-center gap-1"
+                      >
+                        <i className={`fas ${copiedField === 'title' ? 'fa-check text-green-500' : 'fa-copy'}`}></i>
+                        {copiedField === 'title' ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
                   </div>
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-gray-900 font-medium">
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 sm:p-4 text-sm sm:text-base text-gray-900 font-medium">
                     {output.title}
                   </div>
                 </div>
 
                 {/* Bullet Points */}
                 <div>
-                  <label className="text-sm font-semibold text-gray-700 mb-2 block">Bullet Points</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs sm:text-sm font-semibold text-gray-700">Bullet Points</label>
+                    <button
+                      onClick={() => copyToClipboard(output.bulletPoints.join('\n'), 'bullets')}
+                      className="text-xs text-orange-500 hover:text-orange-600 font-medium flex items-center gap-1"
+                    >
+                      <i className={`fas ${copiedField === 'bullets' ? 'fa-check text-green-500' : 'fa-copy'}`}></i>
+                      {copiedField === 'bullets' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
                   <div className="space-y-2">
                     {output.bulletPoints.map((point, idx) => (
-                      <div key={idx} className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-700">
+                      <div key={idx} className="bg-gray-50 border border-gray-200 rounded-lg p-2.5 sm:p-3 text-xs sm:text-sm text-gray-700">
                         <span className="font-semibold text-orange-600 mr-2">•</span>
                         {point}
                       </div>
@@ -417,18 +562,36 @@ function ToolSection() {
 
                 {/* Description */}
                 <div>
-                  <label className="text-sm font-semibold text-gray-700 mb-2 block">Product Description</label>
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm text-gray-700 leading-relaxed">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs sm:text-sm font-semibold text-gray-700">Product Description</label>
+                    <button
+                      onClick={() => copyToClipboard(output.description, 'description')}
+                      className="text-xs text-orange-500 hover:text-orange-600 font-medium flex items-center gap-1"
+                    >
+                      <i className={`fas ${copiedField === 'description' ? 'fa-check text-green-500' : 'fa-copy'}`}></i>
+                      {copiedField === 'description' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 sm:p-4 text-xs sm:text-sm text-gray-700 leading-relaxed whitespace-pre-line">
                     {output.description}
                   </div>
                 </div>
 
                 {/* Search Terms */}
                 <div>
-                  <label className="text-sm font-semibold text-gray-700 mb-2 block">Backend Search Terms</label>
-                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex flex-wrap gap-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs sm:text-sm font-semibold text-gray-700">Backend Search Terms</label>
+                    <button
+                      onClick={() => copyToClipboard(output.searchTerms.join(', '), 'terms')}
+                      className="text-xs text-orange-500 hover:text-orange-600 font-medium flex items-center gap-1"
+                    >
+                      <i className={`fas ${copiedField === 'terms' ? 'fa-check text-green-500' : 'fa-copy'}`}></i>
+                      {copiedField === 'terms' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-2.5 sm:p-3 flex flex-wrap gap-1.5 sm:gap-2">
                     {output.searchTerms.map((term, idx) => (
-                      <span key={idx} className="bg-orange-100 text-orange-700 text-xs px-2 py-1 rounded-full">
+                      <span key={idx} className="bg-orange-100 text-orange-700 text-[10px] sm:text-xs px-2 py-1 rounded-full">
                         {term}
                       </span>
                     ))}
@@ -436,21 +599,31 @@ function ToolSection() {
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex gap-3 pt-4 border-t border-gray-100">
-                  <button className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg text-sm font-medium transition-all">
-                    <i className="fas fa-copy mr-1"></i> Copy All
+                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-4 border-t border-gray-100">
+                  <button
+                    onClick={copyAll}
+                    className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
+                  >
+                    <i className={`fas ${copiedField === 'all' ? 'fa-check' : 'fa-copy'}`}></i>
+                    {copiedField === 'all' ? 'Copied!' : 'Copy All'}
                   </button>
-                  <button className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg text-sm font-medium transition-all">
-                    <i className="fas fa-download mr-1"></i> Download .txt
+                  <button
+                    onClick={downloadAsText}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
+                  >
+                    <i className="fas fa-download"></i> Download .txt
                   </button>
-                  <button className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg text-sm font-medium transition-all">
-                    <i className="fas fa-redo mr-1"></i> Regenerate
+                  <button
+                    onClick={generateListing}
+                    className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2.5 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
+                  >
+                    <i className="fas fa-redo"></i> Regenerate
                   </button>
                 </div>
 
                 {/* Rewarded Ad CTA */}
-                <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4 text-center">
-                  <p className="text-sm text-green-800 font-medium">
+                <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-3 sm:p-4 text-center">
+                  <p className="text-xs sm:text-sm text-green-800 font-medium">
                     <i className="fas fa-video mr-1"></i> Watch a 30-sec ad for 5 more free generations
                   </p>
                 </div>
@@ -466,42 +639,12 @@ function ToolSection() {
 // Features Section
 function FeaturesSection() {
   const features = [
-    {
-      icon: 'fa-bolt',
-      title: 'Lightning Fast',
-      description: 'Get a complete listing in under 10 seconds. No waiting, no queues.',
-      color: 'orange',
-    },
-    {
-      icon: 'fa-search',
-      title: 'SEO Optimized',
-      description: 'Every listing is optimized with high-ranking keywords for your category.',
-      color: 'blue',
-    },
-    {
-      icon: 'fa-shield-alt',
-      title: '100% Private',
-      description: 'Your product data is never stored. Processed in real-time and forgotten.',
-      color: 'green',
-    },
-    {
-      icon: 'fa-globe',
-      title: 'Multi-Platform',
-      description: 'Works for Amazon, Etsy, Shopify, eBay and any marketplace.',
-      color: 'purple',
-    },
-    {
-      icon: 'fa-language',
-      title: 'Multiple Tones',
-      description: 'Professional, friendly, luxury, or urgent — match your brand voice.',
-      color: 'pink',
-    },
-    {
-      icon: 'fa-infinity',
-      title: 'Unlimited Use',
-      description: '5 free generations daily. Watch an ad for more. No credit card needed.',
-      color: 'amber',
-    },
+    { icon: 'fa-bolt', title: 'Lightning Fast', description: 'Get a complete listing in under 10 seconds. No waiting, no queues.', color: 'orange' },
+    { icon: 'fa-search', title: 'SEO Optimized', description: 'Every listing is optimized with high-ranking keywords for your category.', color: 'blue' },
+    { icon: 'fa-shield-alt', title: '100% Private', description: 'Your product data is never stored. Processed in real-time and forgotten.', color: 'green' },
+    { icon: 'fa-globe', title: 'Multi-Platform', description: 'Works for Amazon, Etsy, Shopify, eBay and any marketplace.', color: 'purple' },
+    { icon: 'fa-language', title: 'Multiple Tones', description: 'Professional, friendly, luxury, or urgent — match your brand voice.', color: 'pink' },
+    { icon: 'fa-infinity', title: 'Unlimited Use', description: '5 free generations daily. Watch an ad for more. No credit card needed.', color: 'amber' },
   ];
 
   const colorMap: Record<string, string> = {
@@ -514,25 +657,25 @@ function FeaturesSection() {
   };
 
   return (
-    <section id="features" className="py-20 bg-gray-50">
+    <section id="features" className="py-16 sm:py-20 bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-14">
-          <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+        <div className="text-center mb-10 sm:mb-14">
+          <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">
             Why Sellers Choose ListingAI
           </h2>
-          <p className="text-gray-600 max-w-xl mx-auto">
+          <p className="text-sm sm:text-base text-gray-600 max-w-xl mx-auto px-2">
             Built by Amazon sellers, for Amazon sellers. Every feature designed to save you time and boost sales.
           </p>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {features.map((feature, idx) => (
-            <div key={idx} className="bg-white rounded-xl p-6 border border-gray-100 hover:border-orange-200 hover:shadow-md transition-all">
-              <div className={`w-12 h-12 rounded-lg ${colorMap[feature.color]} flex items-center justify-center mb-4`}>
-                <i className={`fas ${feature.icon} text-lg`}></i>
+            <div key={idx} className="bg-white rounded-xl p-5 sm:p-6 border border-gray-100 hover:border-orange-200 hover:shadow-md transition-all">
+              <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg ${colorMap[feature.color]} flex items-center justify-center mb-3 sm:mb-4`}>
+                <i className={`fas ${feature.icon} text-base sm:text-lg`}></i>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">{feature.title}</h3>
-              <p className="text-gray-600 text-sm leading-relaxed">{feature.description}</p>
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">{feature.title}</h3>
+              <p className="text-gray-600 text-xs sm:text-sm leading-relaxed">{feature.description}</p>
             </div>
           ))}
         </div>
@@ -551,40 +694,40 @@ function PricingComparison() {
   ];
 
   return (
-    <section id="pricing" className="py-20 bg-white">
+    <section id="pricing" className="py-16 sm:py-20 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-14">
-          <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+        <div className="text-center mb-10 sm:mb-14">
+          <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">
             Stop Paying $99/month for Listings
           </h2>
-          <p className="text-gray-600 max-w-xl mx-auto">
+          <p className="text-sm sm:text-base text-gray-600 max-w-xl mx-auto px-2">
             See how ListingAI compares to expensive tools — at zero cost.
           </p>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
           {competitors.map((comp, idx) => (
             <div
               key={idx}
-              className={`rounded-2xl p-6 border-2 transition-all ${
+              className={`rounded-xl sm:rounded-2xl p-4 sm:p-6 border-2 transition-all ${
                 comp.highlight
-                  ? 'border-orange-500 bg-orange-50 shadow-lg shadow-orange-500/10 scale-105'
+                  ? 'border-orange-500 bg-orange-50 shadow-lg shadow-orange-500/10'
                   : 'border-gray-200 bg-white'
               }`}
             >
               {comp.highlight && (
-                <div className="bg-orange-500 text-white text-xs font-bold px-3 py-1 rounded-full inline-block mb-3">
+                <div className="bg-orange-500 text-white text-[10px] sm:text-xs font-bold px-2 sm:px-3 py-0.5 sm:py-1 rounded-full inline-block mb-2 sm:mb-3">
                   BEST VALUE
                 </div>
               )}
-              <h3 className="text-xl font-bold text-gray-900 mb-1">{comp.name}</h3>
-              <p className={`text-2xl font-bold mb-4 ${comp.highlight ? 'text-orange-600' : 'text-gray-900'}`}>
+              <h3 className="text-base sm:text-xl font-bold text-gray-900 mb-1">{comp.name}</h3>
+              <p className={`text-lg sm:text-2xl font-bold mb-3 sm:mb-4 ${comp.highlight ? 'text-orange-600' : 'text-gray-900'}`}>
                 {comp.price}
               </p>
-              <ul className="space-y-2">
+              <ul className="space-y-1.5 sm:space-y-2">
                 {comp.features.map((f, i) => (
-                  <li key={i} className="flex items-center gap-2 text-sm text-gray-600">
-                    <i className={`fas fa-check ${comp.highlight ? 'text-orange-500' : 'text-green-500'} text-xs`}></i>
+                  <li key={i} className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                    <i className={`fas fa-check ${comp.highlight ? 'text-orange-500' : 'text-green-500'} text-[10px] sm:text-xs`}></i>
                     {f}
                   </li>
                 ))}
@@ -593,8 +736,8 @@ function PricingComparison() {
           ))}
         </div>
 
-        <div className="mt-10 text-center">
-          <p className="text-gray-500 text-sm">
+        <div className="mt-8 sm:mt-10 text-center">
+          <p className="text-gray-500 text-xs sm:text-sm">
             💡 Save $588-$1,188/year by using ListingAI instead of paid alternatives
           </p>
         </div>
@@ -612,24 +755,24 @@ function HowItWorks() {
   ];
 
   return (
-    <section className="py-20 bg-gray-50">
+    <section className="py-16 sm:py-20 bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-14">
-          <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+        <div className="text-center mb-10 sm:mb-14">
+          <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">
             How It Works
           </h2>
-          <p className="text-gray-600">3 simple steps to a professional listing</p>
+          <p className="text-sm sm:text-base text-gray-600">3 simple steps to a professional listing</p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid md:grid-cols-3 gap-6 sm:gap-8">
           {steps.map((s, idx) => (
             <div key={idx} className="text-center">
-              <div className="w-16 h-16 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <i className={`fas ${s.icon} text-orange-500 text-2xl`}></i>
+              <div className="w-14 h-14 sm:w-16 sm:h-16 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
+                <i className={`fas ${s.icon} text-orange-500 text-xl sm:text-2xl`}></i>
               </div>
               <div className="text-xs font-bold text-orange-500 mb-1">STEP {s.step}</div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">{s.title}</h3>
-              <p className="text-gray-600 text-sm">{s.desc}</p>
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">{s.title}</h3>
+              <p className="text-gray-600 text-xs sm:text-sm">{s.desc}</p>
             </div>
           ))}
         </div>
@@ -643,53 +786,35 @@ function FAQSection() {
   const [openIdx, setOpenIdx] = useState<number | null>(null);
 
   const faqs = [
-    {
-      q: 'Is ListingAI really free?',
-      a: 'Yes! You get 5 free listing generations per day. No credit card, no signup required. If you need more, you can watch a 30-second ad for additional credits.',
-    },
-    {
-      q: 'How is this different from Helium 10 or Jungle Scout?',
-      a: 'Those tools charge $39-$99/month and include many features you might not need. ListingAI focuses specifically on generating high-quality product listings using AI — for free. If you need keyword research or analytics, those tools are great. But for listings alone, we\'re the better (free) choice.',
-    },
-    {
-      q: 'Will Amazon accept AI-generated listings?',
-      a: 'Yes. Amazon allows AI-assisted content as long as it\'s accurate and not misleading. Our listings are optimized for Amazon\'s A9 algorithm and follow all marketplace guidelines.',
-    },
-    {
-      q: 'What AI model do you use?',
-      a: 'We use state-of-the-art language models fine-tuned specifically for e-commerce copywriting. The models are trained on millions of successful product listings across all major marketplaces.',
-    },
-    {
-      q: 'Is my product data safe?',
-      a: 'Absolutely. We don\'t store any of your product information. Everything is processed in real-time and immediately discarded after generation. Your data never leaves the session.',
-    },
-    {
-      q: 'Can I use this for Etsy and Shopify too?',
-      a: 'Yes! Select your platform (Amazon, Etsy, or Shopify) and we\'ll optimize the listing format, character limits, and keywords specifically for that marketplace.',
-    },
+    { q: 'Is ListingAI really free?', a: 'Yes! You get 5 free listing generations per day. No credit card, no signup required. If you need more, you can watch a 30-second ad for additional credits.' },
+    { q: 'How is this different from Helium 10 or Jungle Scout?', a: 'Those tools charge $39-$99/month and include many features you might not need. ListingAI focuses specifically on generating high-quality product listings using AI — for free.' },
+    { q: 'Will Amazon accept AI-generated listings?', a: 'Yes. Amazon allows AI-assisted content as long as it\'s accurate and not misleading. Our listings are optimized for Amazon\'s A9 algorithm and follow all marketplace guidelines.' },
+    { q: 'What AI model do you use?', a: 'We use state-of-the-art language models fine-tuned specifically for e-commerce copywriting. The models are trained on millions of successful product listings across all major marketplaces.' },
+    { q: 'Is my product data safe?', a: 'Absolutely. We don\'t store any of your product information. Everything is processed in real-time and immediately discarded after generation.' },
+    { q: 'Can I use this for Etsy and Shopify too?', a: 'Yes! Select your platform (Amazon, Etsy, or Shopify) and we\'ll optimize the listing format, character limits, and keywords specifically for that marketplace.' },
   ];
 
   return (
-    <section id="faq" className="py-20 bg-white">
+    <section id="faq" className="py-16 sm:py-20 bg-white">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-14">
-          <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+        <div className="text-center mb-10 sm:mb-14">
+          <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">
             Frequently Asked Questions
           </h2>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2 sm:space-y-3">
           {faqs.map((faq, idx) => (
             <div key={idx} className="border border-gray-200 rounded-xl overflow-hidden">
               <button
                 onClick={() => setOpenIdx(openIdx === idx ? null : idx)}
-                className="w-full flex items-center justify-between p-5 text-left hover:bg-gray-50 transition-colors"
+                className="w-full flex items-center justify-between p-4 sm:p-5 text-left hover:bg-gray-50 transition-colors"
               >
-                <span className="font-medium text-gray-900">{faq.q}</span>
-                <i className={`fas fa-chevron-down text-gray-400 transition-transform ${openIdx === idx ? 'rotate-180' : ''}`}></i>
+                <span className="font-medium text-gray-900 text-sm sm:text-base pr-4">{faq.q}</span>
+                <i className={`fas fa-chevron-down text-gray-400 transition-transform flex-shrink-0 ${openIdx === idx ? 'rotate-180' : ''}`}></i>
               </button>
               {openIdx === idx && (
-                <div className="px-5 pb-5 text-gray-600 text-sm leading-relaxed">
+                <div className="px-4 sm:px-5 pb-4 sm:pb-5 text-gray-600 text-xs sm:text-sm leading-relaxed">
                   {faq.a}
                 </div>
               )}
@@ -704,27 +829,27 @@ function FAQSection() {
 // Footer
 function Footer({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms' | 'about') => void }) {
   return (
-    <footer className="bg-gray-900 text-white py-16">
+    <footer className="bg-gray-900 text-white py-12 sm:py-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
-          <div>
-            <div className="flex items-center gap-2 mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8 mb-10 sm:mb-12">
+          <div className="col-span-2 sm:col-span-1">
+            <div className="flex items-center gap-2 mb-3 sm:mb-4">
               <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-amber-500 rounded-lg flex items-center justify-center">
                 <i className="fas fa-bolt text-white text-sm"></i>
               </div>
               <div className="flex flex-col leading-tight">
-                <span className="text-xl font-bold">Listing<span className="text-orange-400">AI</span></span>
+                <span className="text-lg sm:text-xl font-bold">Listing<span className="text-orange-400">AI</span></span>
                 <span className="text-[10px] text-gray-500 font-medium tracking-wider uppercase">by ZuniTech</span>
               </div>
             </div>
-            <p className="text-gray-400 text-sm leading-relaxed">
+            <p className="text-gray-400 text-xs sm:text-sm leading-relaxed">
               Free AI-powered product listing generator for Amazon, Etsy & Shopify sellers worldwide. A ZuniTech product.
             </p>
           </div>
 
           <div>
-            <h4 className="font-semibold mb-4">Tools</h4>
-            <ul className="space-y-2 text-sm text-gray-400">
+            <h4 className="font-semibold text-sm sm:text-base mb-3 sm:mb-4">Tools</h4>
+            <ul className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm text-gray-400">
               <li><a href="#tool" className="hover:text-orange-400 transition-colors">Listing Generator</a></li>
               <li><a href="#tool" className="hover:text-orange-400 transition-colors">Bullet Points</a></li>
               <li><a href="#tool" className="hover:text-orange-400 transition-colors">Title Optimizer</a></li>
@@ -733,8 +858,8 @@ function Footer({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
           </div>
 
           <div>
-            <h4 className="font-semibold mb-4">Resources</h4>
-            <ul className="space-y-2 text-sm text-gray-400">
+            <h4 className="font-semibold text-sm sm:text-base mb-3 sm:mb-4">Resources</h4>
+            <ul className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm text-gray-400">
               <li><a href="#faq" className="hover:text-orange-400 transition-colors">FAQ</a></li>
               <li><a href="#" className="hover:text-orange-400 transition-colors">Amazon SEO Guide</a></li>
               <li><a href="#" className="hover:text-orange-400 transition-colors">Listing Tips</a></li>
@@ -743,8 +868,8 @@ function Footer({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
           </div>
 
           <div>
-            <h4 className="font-semibold mb-4">Legal</h4>
-            <ul className="space-y-2 text-sm text-gray-400">
+            <h4 className="font-semibold text-sm sm:text-base mb-3 sm:mb-4">Legal</h4>
+            <ul className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm text-gray-400">
               <li><button onClick={() => onNavigate('privacy')} className="hover:text-orange-400 transition-colors">Privacy Policy</button></li>
               <li><button onClick={() => onNavigate('terms')} className="hover:text-orange-400 transition-colors">Terms of Service</button></li>
               <li><button onClick={() => onNavigate('about')} className="hover:text-orange-400 transition-colors">About Us</button></li>
@@ -753,8 +878,8 @@ function Footer({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
           </div>
         </div>
 
-        <div className="border-t border-gray-800 pt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
-          <p className="text-sm text-gray-500">© 2026 ListingAI. Powered by <span className="text-orange-400 font-medium">ZuniTech</span>. All rights reserved.</p>
+        <div className="border-t border-gray-800 pt-6 sm:pt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
+          <p className="text-xs sm:text-sm text-gray-500">© 2026 ListingAI. Powered by <span className="text-orange-400 font-medium">ZuniTech</span>. All rights reserved.</p>
           <div className="flex gap-4">
             <a href="#" className="text-gray-500 hover:text-orange-400 transition-colors"><i className="fab fa-twitter"></i></a>
             <a href="#" className="text-gray-500 hover:text-orange-400 transition-colors"><i className="fab fa-linkedin"></i></a>
@@ -770,22 +895,22 @@ function Footer({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
 // Privacy Policy Page
 function PrivacyPolicy({ onBack }: { onBack: () => void }) {
   return (
-    <div className="min-h-screen bg-white py-12">
+    <div className="min-h-screen bg-white py-8 sm:py-12">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-        <button onClick={onBack} className="text-orange-500 hover:text-orange-600 font-medium mb-8 flex items-center gap-2">
+        <button onClick={onBack} className="text-orange-500 hover:text-orange-600 font-medium mb-6 sm:mb-8 flex items-center gap-2 text-sm sm:text-base">
           <i className="fas fa-arrow-left"></i> Back to Home
         </button>
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">Privacy Policy</h1>
-        <div className="prose prose-gray max-w-none text-gray-600 space-y-4">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4 sm:mb-6">Privacy Policy</h1>
+        <div className="prose prose-gray max-w-none text-gray-600 space-y-4 text-sm sm:text-base">
           <p><strong>Last Updated:</strong> January 2026</p>
           <p>At ListingAI, we take your privacy seriously. This policy explains how we handle your data.</p>
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Data We Collect</h2>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6">Data We Collect</h2>
           <p>We do NOT store any product information you enter. All data is processed in real-time and immediately discarded after generation.</p>
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Cookies & Analytics</h2>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6">Cookies & Analytics</h2>
           <p>We use minimal cookies for site functionality and anonymous analytics to improve our service. No personal data is tracked.</p>
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Third-Party Services</h2>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6">Third-Party Services</h2>
           <p>We use advertising services (Google AdSense) that may collect anonymous usage data. These services have their own privacy policies.</p>
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Contact</h2>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6">Contact</h2>
           <p>For privacy inquiries, email us at privacy@listingai.com</p>
         </div>
       </div>
@@ -796,22 +921,22 @@ function PrivacyPolicy({ onBack }: { onBack: () => void }) {
 // Terms of Service Page
 function TermsOfService({ onBack }: { onBack: () => void }) {
   return (
-    <div className="min-h-screen bg-white py-12">
+    <div className="min-h-screen bg-white py-8 sm:py-12">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-        <button onClick={onBack} className="text-orange-500 hover:text-orange-600 font-medium mb-8 flex items-center gap-2">
+        <button onClick={onBack} className="text-orange-500 hover:text-orange-600 font-medium mb-6 sm:mb-8 flex items-center gap-2 text-sm sm:text-base">
           <i className="fas fa-arrow-left"></i> Back to Home
         </button>
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">Terms of Service</h1>
-        <div className="prose prose-gray max-w-none text-gray-600 space-y-4">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4 sm:mb-6">Terms of Service</h1>
+        <div className="prose prose-gray max-w-none text-gray-600 space-y-4 text-sm sm:text-base">
           <p><strong>Last Updated:</strong> January 2026</p>
           <p>By using ListingAI, you agree to these terms.</p>
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Service Description</h2>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6">Service Description</h2>
           <p>ListingAI provides free AI-generated product listings for e-commerce marketplaces. We do not guarantee specific sales results.</p>
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Fair Usage</h2>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6">Fair Usage</h2>
           <p>Free tier includes 5 generations per day. Abuse or automated usage may result in temporary restrictions.</p>
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Content Responsibility</h2>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6">Content Responsibility</h2>
           <p>You are responsible for ensuring generated content complies with marketplace policies and is accurate for your products.</p>
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Limitation of Liability</h2>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6">Limitation of Liability</h2>
           <p>ListingAI is provided "as is" without warranties. We are not liable for any damages resulting from use of our service.</p>
         </div>
       </div>
@@ -822,116 +947,44 @@ function TermsOfService({ onBack }: { onBack: () => void }) {
 // About Page
 function AboutPage({ onBack }: { onBack: () => void }) {
   return (
-    <div className="min-h-screen bg-white py-12">
+    <div className="min-h-screen bg-white py-8 sm:py-12">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-        <button onClick={onBack} className="text-orange-500 hover:text-orange-600 font-medium mb-8 flex items-center gap-2">
+        <button onClick={onBack} className="text-orange-500 hover:text-orange-600 font-medium mb-6 sm:mb-8 flex items-center gap-2 text-sm sm:text-base">
           <i className="fas fa-arrow-left"></i> Back to Home
         </button>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">About ListingAI</h1>
-        <p className="text-sm text-orange-500 font-semibold mb-6 uppercase tracking-wider">Powered by ZuniTech</p>
-        <div className="prose prose-gray max-w-none text-gray-600 space-y-4">
-          <p className="text-lg">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">About ListingAI</h1>
+        <p className="text-xs sm:text-sm text-orange-500 font-semibold mb-4 sm:mb-6 uppercase tracking-wider">Powered by ZuniTech</p>
+        <div className="prose prose-gray max-w-none text-gray-600 space-y-4 text-sm sm:text-base">
+          <p>
             ListingAI is a product of <strong className="text-gray-900">ZuniTech</strong> — built with one mission: <strong>make professional product listings accessible to every seller, regardless of budget.</strong>
           </p>
           <p>
-            At ZuniTech, we believe that powerful AI tools shouldn't be locked behind expensive paywalls. We noticed that Amazon, Etsy, and Shopify sellers were paying $40-$100/month for AI listing tools. Small sellers, newcomers, and part-time sellers couldn't afford these prices — even though they needed quality listings just as much.
+            At ZuniTech, we believe that powerful AI tools shouldn't be locked behind expensive paywalls. We noticed that Amazon, Etsy, and Shopify sellers were paying $40-$100/month for AI listing tools. Small sellers, newcomers, and part-time sellers couldn't afford these prices.
           </p>
           <p>
             So we built ListingAI: a free, fast, and powerful AI listing generator that rivals the best paid tools — without the price tag. This is just the beginning. ZuniTech is building a suite of AI-powered tools to help entrepreneurs and businesses succeed online.
           </p>
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Our Numbers</h2>
-          <div className="grid grid-cols-3 gap-4 my-6">
-            <div className="text-center p-4 bg-orange-50 rounded-lg">
-              <div className="text-2xl font-bold text-orange-600">10K+</div>
-              <div className="text-sm text-gray-600">Sellers</div>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6">Our Numbers</h2>
+          <div className="grid grid-cols-3 gap-3 sm:gap-4 my-6">
+            <div className="text-center p-3 sm:p-4 bg-orange-50 rounded-lg">
+              <div className="text-xl sm:text-2xl font-bold text-orange-600">10K+</div>
+              <div className="text-xs sm:text-sm text-gray-600">Sellers</div>
             </div>
-            <div className="text-center p-4 bg-orange-50 rounded-lg">
-              <div className="text-2xl font-bold text-orange-600">50K+</div>
-              <div className="text-sm text-gray-600">Listings Generated</div>
+            <div className="text-center p-3 sm:p-4 bg-orange-50 rounded-lg">
+              <div className="text-xl sm:text-2xl font-bold text-orange-600">50K+</div>
+              <div className="text-xs sm:text-sm text-gray-600">Listings</div>
             </div>
-            <div className="text-center p-4 bg-orange-50 rounded-lg">
-              <div className="text-2xl font-bold text-orange-600">$0</div>
-              <div className="text-sm text-gray-600">Cost to You</div>
+            <div className="text-center p-3 sm:p-4 bg-orange-50 rounded-lg">
+              <div className="text-xl sm:text-2xl font-bold text-orange-600">$0</div>
+              <div className="text-xs sm:text-sm text-gray-600">Cost</div>
             </div>
           </div>
-          <h2 className="text-xl font-semibold text-gray-900 mt-6">Contact Us</h2>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mt-6">Contact Us</h2>
           <p>Have questions or feedback? Email us at hello@listingai.com</p>
         </div>
       </div>
     </div>
   );
-}
-
-// ===== HELPER FUNCTIONS (Mock AI Generation) =====
-
-function generateTitle(name: string, category: string, platform: string): string {
-  const prefixes: Record<string, string> = {
-    amazon: '【2026 Upgraded】',
-    etsy: '✨ Handcrafted',
-    shopify: 'Premium',
-  };
-  const suffixes: Record<string, string> = {
-    amazon: '- Perfect Gift for Men & Women | Fast Shipping',
-    etsy: '| Unique Gift Idea | Made with Love',
-    shopify: '| Free Shipping | 30-Day Returns',
-  };
-
-  const prefix = prefixes[platform] || prefixes.amazon;
-  const suffix = suffixes[platform] || suffixes.amazon;
-  const catTag = category ? `| ${category}` : '';
-
-  return `${prefix} ${name} ${catTag} ${suffix}`.slice(0, 200);
-}
-
-function generateBulletPoints(name: string, features: string, audience: string, tone: string): string[] {
-  const featureList = features ? features.split(',').map(f => f.trim()).filter(Boolean) : ['Premium quality', 'Easy to use', 'Durable design'];
-
-  const toneOpeners: Record<string, string[]> = {
-    professional: ['ENGINEERED FOR', 'DESIGNED WITH', 'BUILT TO', 'CERTIFIED', 'BACKED BY'],
-    friendly: ['You\'ll love how', 'Perfect for', 'Great news —', 'We made sure', 'Enjoy the'],
-    luxury: ['EXQUISITE', 'PREMIUM', 'CRAFTED WITH', 'EXCEPTIONAL', 'DISTINGUISHED'],
-    urgent: ['⚡ LIMITED:', '🔥 HOT:', '✅ MUST-HAVE:', '💎 BEST:', '🎯 TOP'],
-  };
-
-  const openers = toneOpeners[tone] || toneOpeners.professional;
-  const audienceTag = audience ? ` — ideal for ${audience}` : '';
-
-  const bullets = featureList.slice(0, 5).map((feature, idx) => {
-    const opener = openers[idx % openers.length];
-    return `${opener} ${feature.toUpperCase()}${audienceTag}. Experience the difference with ${name.toLowerCase()} — trusted by thousands of satisfied customers worldwide.`;
-  });
-
-  // Ensure at least 5 bullets
-  while (bullets.length < 5) {
-    bullets.push(`${openers[bullets.length % openers.length]} QUALITY GUARANTEE — Every ${name} undergoes rigorous testing. If you're not 100% satisfied, our dedicated support team is here to help.`);
-  }
-
-  return bullets;
-}
-
-function generateDescription(name: string, features: string, audience: string, tone: string, category: string): string {
-  const audienceText = audience ? `Designed specifically for ${audience}` : 'Designed for everyone who values quality';
-  const featureText = features ? `Featuring ${features.slice(0, 100)}` : 'Featuring premium materials and innovative design';
-
-  return `${audienceText}, the ${name} sets a new standard in ${category || 'its category'}. ${featureText}, this product delivers exceptional performance that exceeds expectations.\n\nWhether you're upgrading from a basic model or discovering this category for the first time, ${name} combines cutting-edge technology with user-friendly design. Every detail has been carefully considered — from the premium build quality to the intuitive functionality.\n\nJoin thousands of satisfied customers who have made the switch to ${name}. Order today and experience the difference that quality makes.`;
-}
-
-function generateSearchTerms(name: string, category: string): string[] {
-  const words = name.toLowerCase().split(' ');
-  const baseTerms = [
-    `${name.toLowerCase()} gift`,
-    `best ${name.toLowerCase()} 2026`,
-    `${name.toLowerCase()} for sale`,
-    `cheap ${name.toLowerCase()}`,
-    `${name.toLowerCase()} review`,
-  ];
-
-  if (category) {
-    baseTerms.push(`${category.toLowerCase()} ${words[0]}`);
-    baseTerms.push(`top rated ${category.toLowerCase()}`);
-  }
-
-  return baseTerms.slice(0, 8);
 }
 
 export default App;
