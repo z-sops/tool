@@ -60,10 +60,10 @@ function Header({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
           </div>
 
           <nav className="hidden md:flex items-center gap-8">
-            <a href="#tool" className="text-sm font-medium text-gray-600 hover:text-orange-500 transition-colors">Generator</a>
-            <a href="#features" className="text-sm font-medium text-gray-600 hover:text-orange-500 transition-colors">Features</a>
-            <a href="#pricing" className="text-sm font-medium text-gray-600 hover:text-orange-500 transition-colors">vs Paid Tools</a>
-            <a href="#faq" className="text-sm font-medium text-gray-600 hover:text-orange-500 transition-colors">FAQ</a>
+            <a href="#explore" className="text-sm font-medium text-gray-600 hover:text-orange-500 transition-colors">Explore</a>
+            <a href="#learn" className="text-sm font-medium text-gray-600 hover:text-orange-500 transition-colors">Learn</a>
+            <a href="#tool" className="text-sm font-medium text-gray-600 hover:text-orange-500 transition-colors">Create</a>
+            <a href="#how-it-works" className="text-sm font-medium text-gray-600 hover:text-orange-500 transition-colors">How It Works</a>
             <button onClick={() => onNavigate('about')} className="text-sm font-medium text-gray-600 hover:text-orange-500 transition-colors">About</button>
           </nav>
 
@@ -81,10 +81,10 @@ function Header({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
         {mobileMenuOpen && (
           <div className="md:hidden py-4 border-t border-gray-100">
             <nav className="flex flex-col gap-3">
-              <a href="#tool" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">Generator</a>
-              <a href="#features" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">Features</a>
-              <a href="#pricing" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">vs Paid Tools</a>
-              <a href="#faq" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">FAQ</a>
+              <a href="#explore" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">Explore</a>
+              <a href="#learn" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">Learn</a>
+              <a href="#tool" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">Create</a>
+              <a href="#how-it-works" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium text-gray-600 px-2 py-1">How It Works</a>
               <button onClick={() => { onNavigate('about'); setMobileMenuOpen(false); }} className="text-sm font-medium text-gray-600 px-2 py-1 text-left">About</button>
             </nav>
           </div>
@@ -964,10 +964,42 @@ function ExploreSection() {
               We clearly label all data sources — no fake estimates.
             </p>
           </div>
-          <a href="#tool" className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-lg font-semibold transition-all">
-            <i className="fas fa-magic"></i>
-            Create Your Own Listing
-          </a>
+          
+          <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-xl p-5 sm:p-6 max-w-3xl mx-auto mb-6">
+            <h3 className="font-semibold text-gray-900 mb-3 text-sm sm:text-base">
+              <i className="fas fa-lightbulb text-yellow-500 mr-2"></i>
+              What Can You Learn from These Examples?
+            </h3>
+            <div className="grid sm:grid-cols-2 gap-3 text-left">
+              <div className="flex items-start gap-2">
+                <i className="fas fa-check text-green-500 mt-1 text-xs"></i>
+                <span className="text-xs sm:text-sm text-gray-700">How successful products are priced</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <i className="fas fa-check text-green-500 mt-1 text-xs"></i>
+                <span className="text-xs sm:text-sm text-gray-700">What ratings and reviews look like</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <i className="fas fa-check text-green-500 mt-1 text-xs"></i>
+                <span className="text-xs sm:text-sm text-gray-700">Common features in each category</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <i className="fas fa-check text-green-500 mt-1 text-xs"></i>
+                <span className="text-xs sm:text-sm text-gray-700">How BSR indicates popularity</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-center gap-3">
+            <a href="#learn" className="inline-flex items-center justify-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg font-semibold transition-all">
+              <i className="fas fa-graduation-cap"></i>
+              Learn from Examples
+            </a>
+            <a href="#tool" className="inline-flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-6 py-3 rounded-lg font-semibold transition-all">
+              <i className="fas fa-magic"></i>
+              Create Your Own Listing
+            </a>
+          </div>
         </div>
       </div>
     </section>
@@ -978,35 +1010,67 @@ function ExploreSection() {
 function LearnSection() {
   const guides = [
     {
-      title: 'How to Analyze Amazon Listings',
-      description: 'Learn what makes a successful listing. Understand title structure, bullet points, and descriptions.',
+      title: 'How to Read an Amazon Listing',
+      description: 'Break down what each part of a listing means — title, bullets, description, images, reviews. Learn to spot what works.',
       icon: 'fa-book-open',
       duration: '5 min read',
       level: 'Beginner',
       color: 'blue',
     },
     {
-      title: 'Understanding BSR (Best Sellers Rank)',
-      description: 'What BSR means, how it\'s calculated, and how to use it for product research.',
-      icon: 'fa-chart-line',
-      duration: '7 min read',
+      title: 'What Makes a Good Title?',
+      description: 'Title structure, keyword placement, character limits, and common mistakes new sellers make.',
+      icon: 'fa-heading',
+      duration: '4 min read',
       level: 'Beginner',
       color: 'green',
     },
     {
-      title: 'Pricing Strategies for New Sellers',
-      description: 'How to price your product competitively while maintaining profit margins.',
-      icon: 'fa-dollar-sign',
+      title: 'How Bullet Points Work',
+      description: 'Feature vs benefit format, keyword integration, and how to write bullets that convert browsers into buyers.',
+      icon: 'fa-list',
       duration: '6 min read',
+      level: 'Beginner',
+      color: 'orange',
+    },
+    {
+      title: 'Understanding BSR (Best Sellers Rank)',
+      description: 'What BSR means, how it\'s calculated, and how to use it for product research. Lower is better — but what\'s "good"?',
+      icon: 'fa-chart-line',
+      duration: '7 min read',
+      level: 'Beginner',
+      color: 'purple',
+    },
+    {
+      title: 'What is Competition?',
+      description: 'How to evaluate if a market is too crowded. Review counts, ratings, and what they tell you about opportunity.',
+      icon: 'fa-users',
+      duration: '6 min read',
+      level: 'Beginner',
+      color: 'blue',
+    },
+    {
+      title: 'Amazon vs Shopify: Which to Choose?',
+      description: 'Pros and cons of each platform. Traffic, fees, control, and which is right for your situation.',
+      icon: 'fa-balance-scale',
+      duration: '8 min read',
+      level: 'Beginner',
+      color: 'green',
+    },
+    {
+      title: 'Product Research Basics',
+      description: 'How to find product ideas, validate demand, and assess if a product is worth pursuing.',
+      icon: 'fa-search',
+      duration: '10 min read',
       level: 'Intermediate',
       color: 'orange',
     },
     {
-      title: 'Keyword Research Basics',
-      description: 'Learn how to find the right keywords for your product listing.',
-      icon: 'fa-search',
-      duration: '8 min read',
-      level: 'Beginner',
+      title: 'Pricing Strategies for New Sellers',
+      description: 'How to price competitively while maintaining margins. Understanding fees, FBA costs, and profit calculations.',
+      icon: 'fa-dollar-sign',
+      duration: '7 min read',
+      level: 'Intermediate',
       color: 'purple',
     },
   ];
@@ -1027,10 +1091,10 @@ function LearnSection() {
             LEARN
           </div>
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">
-            Educational Guides
+            Practical Guides for New Sellers
           </h2>
           <p className="text-sm sm:text-base text-gray-600 max-w-2xl mx-auto px-2">
-            Learn from real examples. Understand what makes listings successful. Build confidence before investing.
+            Learn e-commerce using real examples. Understand what makes listings successful. Build confidence before investing.
           </p>
         </div>
 
@@ -1038,7 +1102,7 @@ function LearnSection() {
           {guides.map((guide, idx) => {
             const colors = colorMap[guide.color];
             return (
-              <div key={idx} className="bg-white rounded-xl p-5 sm:p-6 border border-gray-200 hover:shadow-lg transition-all">
+              <div key={idx} className="bg-white rounded-xl p-5 sm:p-6 border border-gray-200 hover:shadow-lg transition-all cursor-pointer">
                 <div className="flex items-start gap-4">
                   <div className={`w-12 h-12 ${colors} rounded-lg flex items-center justify-center flex-shrink-0`}>
                     <i className={`fas ${guide.icon} text-lg`}></i>
@@ -1060,8 +1124,12 @@ function LearnSection() {
         </div>
 
         <div className="mt-8 sm:mt-10 text-center">
-          <a href="#" className="inline-flex items-center gap-2 text-orange-500 hover:text-orange-600 font-semibold text-sm sm:text-base">
-            View All Guides
+          <p className="text-xs sm:text-sm text-gray-500 mb-4">
+            <i className="fas fa-info-circle mr-1"></i>
+            More guides added weekly. Learn at your own pace.
+          </p>
+          <a href="#explore" className="inline-flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-lg font-semibold text-sm sm:text-base transition-all">
+            Start Learning Now
             <i className="fas fa-arrow-right"></i>
           </a>
         </div>
@@ -1178,13 +1246,14 @@ function PricingComparison() {
 // How It Works
 function HowItWorks() {
   const steps = [
-    { step: '1', title: 'Enter Product Details', desc: 'Type your product name, features, and target audience', icon: 'fa-keyboard' },
-    { step: '2', title: 'AI Writes Your Listing', desc: 'Our AI creates SEO-optimized titles, bullets & descriptions', icon: 'fa-robot' },
-    { step: '3', title: 'Copy & Paste', desc: 'Copy the listing directly to your Amazon/Etsy/Shopify dashboard', icon: 'fa-copy' },
+    { step: '1', title: 'Explore the Market', desc: 'Browse curated product examples. See what\'s selling, at what price, with what competition.', icon: 'fa-search' },
+    { step: '2', title: 'Learn from Examples', desc: 'Read practical guides. Understand what makes listings successful. Build your knowledge.', icon: 'fa-graduation-cap' },
+    { step: '3', title: 'Create Your Listing', desc: 'Use AI to generate professional titles, bullets, and descriptions optimized for your marketplace.', icon: 'fa-magic' },
+    { step: '4', title: 'Launch with Confidence', desc: 'You understand the market. You have a great listing. You\'re ready to start your business.', icon: 'fa-rocket' },
   ];
 
   return (
-    <section className="py-16 sm:py-20 bg-gray-50">
+    <section id="how-it-works" className="py-16 sm:py-20 bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center mb-10 sm:mb-14">
           <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">
@@ -1193,7 +1262,7 @@ function HowItWorks() {
           <p className="text-sm sm:text-base text-gray-600">3 simple steps to a professional listing</p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6 sm:gap-8">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
           {steps.map((s, idx) => (
             <div key={idx} className="text-center">
               <div className="w-14 h-14 sm:w-16 sm:h-16 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto mb-3 sm:mb-4">
@@ -1277,12 +1346,12 @@ function Footer({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
           </div>
 
           <div>
-            <h4 className="font-semibold text-sm sm:text-base mb-3 sm:mb-4">Tools</h4>
+            <h4 className="font-semibold text-sm sm:text-base mb-3 sm:mb-4">Product</h4>
             <ul className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm text-gray-400">
-              <li><a href="#tool" className="hover:text-orange-400 transition-colors">Listing Generator</a></li>
-              <li><a href="#tool" className="hover:text-orange-400 transition-colors">Bullet Points</a></li>
-              <li><a href="#tool" className="hover:text-orange-400 transition-colors">Title Optimizer</a></li>
-              <li><a href="#tool" className="hover:text-orange-400 transition-colors">Description Writer</a></li>
+              <li><a href="#explore" className="hover:text-orange-400 transition-colors">Explore</a></li>
+              <li><a href="#learn" className="hover:text-orange-400 transition-colors">Learn</a></li>
+              <li><a href="#tool" className="hover:text-orange-400 transition-colors">Create</a></li>
+              <li><a href="#how-it-works" className="hover:text-orange-400 transition-colors">How It Works</a></li>
             </ul>
           </div>
 
@@ -1290,8 +1359,8 @@ function Footer({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
             <h4 className="font-semibold text-sm sm:text-base mb-3 sm:mb-4">Resources</h4>
             <ul className="space-y-1.5 sm:space-y-2 text-xs sm:text-sm text-gray-400">
               <li><a href="#faq" className="hover:text-orange-400 transition-colors">FAQ</a></li>
-              <li><a href="#" className="hover:text-orange-400 transition-colors">Amazon SEO Guide</a></li>
-              <li><a href="#" className="hover:text-orange-400 transition-colors">Listing Tips</a></li>
+              <li><a href="#learn" className="hover:text-orange-400 transition-colors">Guides</a></li>
+              <li><a href="#pricing" className="hover:text-orange-400 transition-colors">Pricing</a></li>
               <li><a href="#" className="hover:text-orange-400 transition-colors">Blog</a></li>
             </ul>
           </div>
