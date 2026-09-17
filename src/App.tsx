@@ -50,7 +50,10 @@ function Header({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
             <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-amber-500 rounded-lg flex items-center justify-center">
               <i className="fas fa-bolt text-white text-sm"></i>
             </div>
-            <span className="text-xl font-bold text-gray-900">Listing<span className="text-orange-500">AI</span></span>
+            <div className="flex flex-col leading-tight">
+              <span className="text-xl font-bold text-gray-900">Listing<span className="text-orange-500">AI</span></span>
+              <span className="text-[10px] text-gray-400 font-medium tracking-wider uppercase">by ZuniTech</span>
+            </div>
           </div>
 
           <nav className="hidden md:flex items-center gap-8">
@@ -93,9 +96,13 @@ function HeroSection() {
   return (
     <section className="py-16 sm:py-24 bg-gradient-to-b from-orange-50/50 to-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-        <div className="inline-flex items-center gap-2 bg-orange-100 text-orange-700 px-4 py-2 rounded-full text-sm font-medium mb-6">
+        <div className="inline-flex items-center gap-2 bg-orange-100 text-orange-700 px-4 py-2 rounded-full text-sm font-medium mb-4">
           <i className="fas fa-star text-xs"></i>
           Trusted by 10,000+ Amazon Sellers
+        </div>
+        <div className="inline-flex items-center gap-1.5 text-xs text-gray-400 font-medium mb-6">
+          <i className="fas fa-microchip"></i>
+          Powered by <span className="font-semibold text-gray-600">ZuniTech</span>
         </div>
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 leading-tight mb-6">
           Free AI Amazon<br />
@@ -705,10 +712,13 @@ function Footer({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
               <div className="w-8 h-8 bg-gradient-to-br from-orange-500 to-amber-500 rounded-lg flex items-center justify-center">
                 <i className="fas fa-bolt text-white text-sm"></i>
               </div>
-              <span className="text-xl font-bold">Listing<span className="text-orange-400">AI</span></span>
+              <div className="flex flex-col leading-tight">
+                <span className="text-xl font-bold">Listing<span className="text-orange-400">AI</span></span>
+                <span className="text-[10px] text-gray-500 font-medium tracking-wider uppercase">by ZuniTech</span>
+              </div>
             </div>
             <p className="text-gray-400 text-sm leading-relaxed">
-              Free AI-powered product listing generator for Amazon, Etsy & Shopify sellers worldwide.
+              Free AI-powered product listing generator for Amazon, Etsy & Shopify sellers worldwide. A ZuniTech product.
             </p>
           </div>
 
@@ -744,7 +754,7 @@ function Footer({ onNavigate }: { onNavigate: (page: 'home' | 'privacy' | 'terms
         </div>
 
         <div className="border-t border-gray-800 pt-8 flex flex-col sm:flex-row justify-between items-center gap-4">
-          <p className="text-sm text-gray-500">© 2026 ListingAI. All rights reserved.</p>
+          <p className="text-sm text-gray-500">© 2026 ListingAI. Powered by <span className="text-orange-400 font-medium">ZuniTech</span>. All rights reserved.</p>
           <div className="flex gap-4">
             <a href="#" className="text-gray-500 hover:text-orange-400 transition-colors"><i className="fab fa-twitter"></i></a>
             <a href="#" className="text-gray-500 hover:text-orange-400 transition-colors"><i className="fab fa-linkedin"></i></a>
@@ -817,16 +827,17 @@ function AboutPage({ onBack }: { onBack: () => void }) {
         <button onClick={onBack} className="text-orange-500 hover:text-orange-600 font-medium mb-8 flex items-center gap-2">
           <i className="fas fa-arrow-left"></i> Back to Home
         </button>
-        <h1 className="text-3xl font-bold text-gray-900 mb-6">About ListingAI</h1>
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">About ListingAI</h1>
+        <p className="text-sm text-orange-500 font-semibold mb-6 uppercase tracking-wider">Powered by ZuniTech</p>
         <div className="prose prose-gray max-w-none text-gray-600 space-y-4">
           <p className="text-lg">
-            ListingAI was built with one mission: <strong>make professional product listings accessible to every seller, regardless of budget.</strong>
+            ListingAI is a product of <strong className="text-gray-900">ZuniTech</strong> — built with one mission: <strong>make professional product listings accessible to every seller, regardless of budget.</strong>
           </p>
           <p>
-            We noticed that Amazon, Etsy, and Shopify sellers were paying $40-$100/month for AI listing tools. Small sellers, newcomers, and part-time sellers couldn't afford these prices — even though they needed quality listings just as much.
+            At ZuniTech, we believe that powerful AI tools shouldn't be locked behind expensive paywalls. We noticed that Amazon, Etsy, and Shopify sellers were paying $40-$100/month for AI listing tools. Small sellers, newcomers, and part-time sellers couldn't afford these prices — even though they needed quality listings just as much.
           </p>
           <p>
-            So we built ListingAI: a free, fast, and powerful AI listing generator that rivals the best paid tools — without the price tag.
+            So we built ListingAI: a free, fast, and powerful AI listing generator that rivals the best paid tools — without the price tag. This is just the beginning. ZuniTech is building a suite of AI-powered tools to help entrepreneurs and businesses succeed online.
           </p>
           <h2 className="text-xl font-semibold text-gray-900 mt-6">Our Numbers</h2>
           <div className="grid grid-cols-3 gap-4 my-6">
