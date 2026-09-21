@@ -69,8 +69,8 @@ Make sure the listing is:
       headers: {
         'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.SITE_URL || 'https://listingai.vercel.app',
-        'X-Title': 'ListingAI by ZuniTech',
+        'HTTP-Referer': process.env.SITE_URL || 'https://listingai-woad.vercel.app',
+        'X-Title': 'NicheScout',
       },
       body: JSON.stringify({
         model: 'meta-llama/llama-3.1-8b-instruct:free', // Free model

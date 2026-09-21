@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /my-research
+Disallow: /create
+
+Sitemap: https://listingai-woad.vercel.app/sitemap.xml
