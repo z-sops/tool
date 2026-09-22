@@ -20,7 +20,7 @@
     }
   ],
   "functions": {
-    "api/**/*.ts": {
+    "api/[...slug].ts": {
       "maxDuration": 30
     }
   }
