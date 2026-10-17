@@ -41,10 +41,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .innerJoin(workspaces, eq(workspaceMembers.workspaceId, workspaces.id))
         .where(eq(workspaceMembers.userId, auth.userId));
       
-      const memberWorkspaceIds = new Set(memberships.map(m => m.workspace.id));
+      const ownedWorkspaceIds = new Set(ownedWorkspaces.map(w => w.id));
       const allWorkspaces = [
         ...ownedWorkspaces.map(w => ({ workspace: w, role: 'owner' as const })),
-        ...memberships.filter(m => !memberWorkspaceIds.has(m.workspace.id)),
+        ...memberships.filter(m => !ownedWorkspaceIds.has(m.workspace.id)),
       ];
       
       return res.status(200).json({ workspaces: allWorkspaces });

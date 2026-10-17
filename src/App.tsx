@@ -32,12 +32,11 @@ function NotFoundPage() {
   return <NotFound />;
 }
 
-function App() {
+function AppContent() {
+  const isStockLot = useLocation().pathname.startsWith('/stock-lots');
   return (
-    <BrowserRouter>
-      <SEOApp>
-        <div className="min-h-screen bg-white flex flex-col">
-          <Header />
+    <div className="min-h-screen bg-white flex flex-col">
+      {!isStockLot && <Header />}
           <main className="flex-1">
             <Routes>
               {/* Home */}
@@ -73,11 +72,13 @@ function App() {
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </main>
-          <Footer />
-        </div>
-      </SEOApp>
-    </BrowserRouter>
+      {!isStockLot && <Footer />}
+    </div>
   );
+}
+
+function App() {
+  return <BrowserRouter><SEOApp><AppContent /></SEOApp></BrowserRouter>;
 }
 
 function SEOApp({ children }: { children: React.ReactNode }) {
