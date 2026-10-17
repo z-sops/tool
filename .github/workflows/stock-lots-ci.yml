@@ -65,6 +65,6 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f docs/stock-lots/001-stock-lots.sql
       - name: Assert baseline and lot tables coexist
         run: |
-          psql -v ON_ERROR_STOP=1 -At -c "SELECT CASE WHEN count(*)=5 THEN 'OK' ELSE (1/0)::text END FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('saved_listings','saved_analyses','lot_suppliers','inventory_lots','buyer_demands');"
+          test "$(psql -v ON_ERROR_STOP=1 -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('saved_listings','saved_analyses','lot_suppliers','inventory_lots','buyer_demands');")" = 5
       - name: Test real database API and permission workflow
         run: npx vitest run tests/integration/stock-lots-db.test.ts
