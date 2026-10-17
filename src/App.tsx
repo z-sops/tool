@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { StockLotPage } from './pages/StockLotPage';
 import { Header, Footer } from './components/layout';
 import { HomePage } from './pages/HomePage';
 import { ExplorePage } from './pages/ExplorePage';
@@ -43,6 +44,7 @@ function App() {
               <Route path="/" element={<HomePage />} />
               
               {/* Main Pages */}
+              <Route path="/stock-lots" element={<StockLotPage />} />
               <Route path="/explore" element={<ExplorePage />} />
               <Route path="/learn" element={<LearnPage />} />
               <Route path="/create" element={<CreatePage />} />

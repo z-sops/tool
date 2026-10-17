@@ -6,6 +6,7 @@ export function Header() {
   const location = useLocation();
   
   const navItems = [
+    { path: '/stock-lots', label: 'Stock Lots' },
     { path: '/explore', label: 'Explore' },
     { path: '/learn', label: 'Learn' },
     { path: '/create', label: 'Create' },

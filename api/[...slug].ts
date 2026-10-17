@@ -147,8 +147,13 @@ register('/api/workspace/update', async (req, res) => {
   return handler(req, res);
 });
 
+register('/api/stocklots', async (req, res) => {
+  const { default: handler } = await import('../server/api/stocklots/index.js');
+  return handler(req, res);
+});
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const pathname = req.url || '/';
+  const pathname = (req.url || '/').split('?')[0];
   
   const match = matchRoute(pathname);
   if (match) {
