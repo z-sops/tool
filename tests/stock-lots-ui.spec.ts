@@ -25,6 +25,7 @@ async function mockApi(page: Page, options?: {anonymous?:boolean; empty?:boolean
     const url = new URL(request.url());
     const path = url.pathname;
     const send = (body: unknown, status=200) => route.fulfill({status, contentType:'application/json',body:JSON.stringify(body)});
+    if(path==='/api/stocklots-status')return send({service:'stock-lots',databaseConfigured:true});
     if(path==='/api/auth/session')return send({user:options?.anonymous?null:{id:uid,email:'sourcing@example.com'}});
     if(path==='/api/workspace/list')return send({workspaces:[{workspace:{id:wid,name:'China Supplier Field Desk'},role:'owner'}]});
     if(path==='/api/auth/login')return send({user:{id:uid,email:'sourcing@example.com'}});
@@ -140,4 +141,23 @@ test('shows login form without a valid session',async({page})=>{
   await page.goto('/stock-lots');
   await expect(page.getByRole('heading',{name:'Stock-Lot Intelligence'})).toBeVisible();
   await expect(page.getByRole('button',{name:'Sign in'})).toBeVisible();
+});
+
+test('explains non-JSON HTML API responses instead of hiding the HTTP error', async ({page}) => {
+  await mockApi(page,{anonymous:true});
+  await page.route('**/api/auth/login', async route =>
+    route.fulfill({status:404,contentType:'text/html',body:'<html><body>Not Found</body></html>'}));
+  await page.goto('/stock-lots');
+  await page.getByRole('textbox',{name:'Work email'}).fill('demo@example.com');
+  await page.getByLabel('Password').fill('temporary-password');
+  await page.getByRole('button',{name:'Sign in'}).click();
+  await expect(page.getByRole('alert')).toContainText('API route not found (/api/auth/login, HTTP 404)');
+});
+test('shows a clear preview database configuration warning', async ({page}) => {
+  await mockApi(page,{anonymous:true});
+  await page.route('**/api/stocklots-status',async route=>route.fulfill({
+    status:200,contentType:'application/json',body:JSON.stringify({service:'stock-lots',databaseConfigured:false}),
+  }));
+  await page.goto('/stock-lots');
+  await expect(page.getByRole('alert')).toContainText('This preview has no database connected');
 });

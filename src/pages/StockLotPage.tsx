@@ -17,14 +17,36 @@ const statusColor: Record<string,string> = { published:'lot-green', documents_ch
 const sectionForView: Partial<Record<View,FormSection>> = { lots:'lots', suppliers:'suppliers',buyers:'demands' };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, { credentials:'include', ...init, headers:{...init?.headers, ...(init?.body ? {'Content-Type':'application/json'} : {})} });
-  const data = await response.json().catch(() => ({error:'Server returned an invalid response'}));
+  const response = await fetch(path, {
+    credentials: 'include',
+    ...init,
+    headers: {...init?.headers, ...(init?.body ? {'Content-Type':'application/json'} : {})},
+  });
+  // A Vercel protection/login HTML page or an unrouted function returns
+  // non-JSON; reporting only "invalid response" masks the root cause.
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const endpoint = path.split('?')[0];
+  if (!contentType.includes('application/json') && !contentType.includes('+json')) {
+    if (response.status === 401 || response.status === 403 || response.redirected) {
+      throw new Error('Preview access was refused or redirected. Sign in to the correct Vercel team, then reload. (HTTP ' + response.status + ' at ' + endpoint + ')');
+    }
+    if (response.status === 404) {
+      throw new Error('API route not found (' + endpoint + ', HTTP 404). This preview may be outdated; open the latest deployment.');
+    }
+    throw new Error('The API returned HTTP ' + response.status + ' instead of JSON at ' + endpoint + '. Check Vercel routing and deployment configuration.');
+  }
+  let data: Record<string,any>;
+  try { data = await response.json(); }
+  catch {
+    throw new Error('The API returned malformed JSON at ' + endpoint + ' (HTTP ' + response.status + ').');
+  }
   if (!response.ok) {
     const details = data.details?.fieldErrors ? Object.entries(data.details.fieldErrors).map(([k,v]) => k + ': ' + String(v)).join('; ') : '';
-    throw new Error([data.error || 'Request failed',details].filter(Boolean).join(' — '));
+    throw new Error([data.error || 'API request failed (HTTP ' + response.status + ')', details].filter(Boolean).join(' — '));
   }
   return data as T;
 }
+
 function Status({ value }: {value:string}) {
   return <span className={'lot-status ' + (statusColor[value] || 'lot-gray')}><span className="lot-status-dot"/> {readableStatus(value)}</span>;
 }
@@ -43,6 +65,7 @@ function Empty({ title, description, onClick, action }: {title:string;descriptio
 export function StockLotPage() {
   const [user,setUser] = useState<{id:string;email:string}|null>(null);
   const [sessionLoading,setSessionLoading] = useState(true);
+  const [databaseReady,setDatabaseReady] = useState<boolean|null>(null);
   const [authMode,setAuthMode] = useState<'login'|'signup'>('login');
   const [credentials,setCredentials] = useState({email:'',password:'',displayName:''});
   const [workspaces,setWorkspaces] = useState<WorkspaceEntry[]>([]);
@@ -76,6 +99,13 @@ export function StockLotPage() {
     setWorkspaces(data.workspaces);
     setWorkspaceId(previous => data.workspaces.some(w=>w.workspace.id===previous) ? previous : data.workspaces[0]?.workspace.id || '');
   }
+  useEffect(() => {
+    let active = true;
+    api<{databaseConfigured:boolean}>('/api/stocklots-status').then(status => {
+      if (active) setDatabaseReady(status.databaseConfigured);
+    }).catch(e => {if (active) setError((e as Error).message);});
+    return () => {active = false;};
+  },[]);
   useEffect(()=>{let active=true;api<{user:{id:string;email:string}|null}>('/api/auth/session')
     .then(data=>{if(!active)return;setUser(data.user);if(data.user)loadWorkspaces().catch(e=>setError(e.message));})
     .catch(e=>{if(active)setError(e.message);})
@@ -162,6 +192,9 @@ export function StockLotPage() {
     <div className="lot-brand-mark"><Boxes size={22}/></div>
     <div className="lot-kicker">ZUNITECH / CHINA SOURCING</div>
     <h1>Stock-Lot Intelligence</h1><p>Sign in to your private supplier and inventory workspace.</p>
+    {databaseReady === false && <div className="lot-flash lot-flash-error" role="alert">
+      This preview has no database connected. Signup and login are unavailable until an isolated preview database is configured.
+    </div>}
     <form className="lot-auth-form" onSubmit={login}>
       {authMode==='signup'&&<label>Your name<input required value={credentials.displayName} onChange={e=>setCredentials(p=>({...p,displayName:e.target.value}))} /></label>}
       <label>Work email<input type="email" required autoComplete="email" value={credentials.email} onChange={e=>setCredentials(p=>({...p,email:e.target.value}))}/></label>
