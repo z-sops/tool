@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { matchBuyerDemand } from '../../src/lib/stock-lots/matching';
+import { isTrustedMutationOrigin } from '../../server/api/stocklots/origin';
 import { supplierInput, lotInput, buyerDemandInput, reviewInput, hasSellableStatus } from '../../src/lib/stock-lots/validation';
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
@@ -32,5 +34,42 @@ describe('China stock-lot MVP input validation', () => {
     expect(hasSellableStatus('unverified')).toBe(false);
     expect(hasSellableStatus('documents_checked')).toBe(false);
     expect(hasSellableStatus('published')).toBe(true);
+  });
+});
+
+describe('lot availability and buyer matches', () => {
+  const demand = { id: 'd1', workspaceId, status: 'open', category: 'Kitchenware', productName: 'Stainless steel cutlery', quantity: 1000, maxBudgetCnyMinor: 500000 };
+  const original = { id: 'l1', workspaceId, status: 'published', category: 'Kitchenware', productName: 'Stainless steel cutlery sets', quantity: 2400, minimumOrder: 500, splitAllowed: false, unitPriceCnyMinor: 250 };
+  it('never matches unverified or other workspace stock', () => {
+    expect(matchBuyerDemand(demand, [{...original, status: 'unverified'}])).toEqual([]);
+    expect(matchBuyerDemand(demand, [{...original, workspaceId: 'other'}])).toEqual([]);
+  });
+  it('does not silently split a full-only lot', () => {
+    expect(matchBuyerDemand(demand, [original])).toEqual([]); // full lot costs 600000
+    const results = matchBuyerDemand({...demand,maxBudgetCnyMinor:650000}, [original]);
+    expect(results).toHaveLength(1);
+    expect(results[0].units).toBe(2400);
+    expect(results[0].fullLot).toBe(true);
+  });
+  it('supports explicitly permitted splits', () => {
+    const results = matchBuyerDemand(demand, [{ ...original, splitAllowed: true }]);
+    expect(results).toHaveLength(1);
+    expect(results[0].units).toBe(1000);
+    expect(results[0].totalPriceCnyMinor).toBe(250000);
+    expect(matchBuyerDemand({...demand,quantity:400}, [{ ...original, splitAllowed: true }])).toEqual([]);
+  });
+  it('requires category, relevant terms and budget', () => {
+    expect(matchBuyerDemand(demand, [{...original, splitAllowed: true, category:'Lighting'}])).toEqual([]);
+    expect(matchBuyerDemand(demand, [{...original, splitAllowed: true, productName:'LED floodlights'}])).toEqual([]);
+    expect(matchBuyerDemand({...demand,maxBudgetCnyMinor:200000}, [{...original, splitAllowed: true}])).toEqual([]);
+  });
+});
+describe('same-origin mutation safety', () => {
+  const req = (origin?:string,host='example.com',proto='https') => ({ headers: {origin,host,'x-forwarded-proto':proto} });
+  it('allows same-origin writes', () => expect(isTrustedMutationOrigin(req('https://example.com'))).toBe(true));
+  it('rejects foreign and missing origins', () => {
+    expect(isTrustedMutationOrigin(req('https://evil.example'))).toBe(false);
+    expect(isTrustedMutationOrigin(req())).toBe(false);
+    expect(isTrustedMutationOrigin(req('http://example.com'))).toBe(false);
   });
 });

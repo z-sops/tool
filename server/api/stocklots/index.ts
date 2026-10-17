@@ -1,16 +1,18 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { and, desc, eq } from 'drizzle-orm';
 import { getDb } from '../../../src/server/db/client';
-import { lotSuppliers, inventoryLots, buyerDemands } from '../../../src/server/db/schema';
+import { lotSuppliers, inventoryLots, buyerDemands, lotReviewEvents } from '../../../src/server/db/schema';
 import { supplierInput, lotInput, buyerDemandInput, reviewInput } from '../../../src/lib/stock-lots/validation';
 import { getAuthContext, requireWorkspaceAccess } from '../_lib/authorization';
 import { apiRateLimiter } from '../_lib/rate-limit';
 import { handleCors, setCorsHeaders } from '../_lib/cors';
 import { z } from 'zod';
+import { isTrustedMutationOrigin } from './origin';
+import { matchBuyerDemand } from '../../../src/lib/stock-lots/matching';
 
 const queryInput = z.object({
   workspaceId: z.string().uuid(),
-  type: z.enum(['suppliers', 'lots', 'demands']),
+  type: z.enum(['suppliers', 'lots', 'demands', 'matches']),
 });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -20,13 +22,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!auth) return res.status(401).json({ error: 'Unauthorized' });
   const limit = await apiRateLimiter('stocklots:' + auth.userId);
   if (!limit.allowed) return res.status(429).json({ error: 'Too many requests' });
-  const db = getDb();
+  if (req.method === 'POST' && !isTrustedMutationOrigin(req)) {
+    return res.status(403).json({ error: 'Cross-origin or missing Origin header on mutation' });
+  }
   try {
+    const db = getDb();
     if (req.method === 'GET') {
       const input = queryInput.safeParse(req.query);
       if (!input.success) return res.status(400).json({ error: 'Invalid query' });
       const { workspaceId, type } = input.data;
       await requireWorkspaceAccess(auth.userId, workspaceId);
+      if (type === 'matches') {
+        const [lots, demands] = await Promise.all([
+          db.select().from(inventoryLots).where(and(eq(inventoryLots.workspaceId, workspaceId), eq(inventoryLots.status, 'published'))).limit(200),
+          db.select().from(buyerDemands).where(and(eq(buyerDemands.workspaceId, workspaceId), eq(buyerDemands.status, 'open'))).limit(200),
+        ]);
+        return res.status(200).json({ items: demands.flatMap(d => matchBuyerDemand(d, lots)) });
+      }
       if (type === 'suppliers') {
         const suppliers = await db.select().from(lotSuppliers)
           .where(eq(lotSuppliers.workspaceId, workspaceId))
@@ -95,11 +107,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(409).json({ error: 'Already withdrawn' });
       }
       const status = decision === 'verify' ? 'documents_checked' : decision === 'publish' ? 'published' : 'withdrawn';
-      const [item] = await db.update(inventoryLots).set({
-        status,
-        updatedAt: new Date(),
-        ...(decision === 'verify' ? { verifiedAt: new Date(), verificationNote: evidenceNote } : {}),
-      }).where(and(eq(inventoryLots.id, lotId), eq(inventoryLots.workspaceId, workspaceId))).returning();
+      // Atomic compare-and-swap prevents concurrent reviewers publishing stale status.
+      // Audit and state transition commit together.
+      const item = await db.transaction(async tx => {
+        const [updated] = await tx.update(inventoryLots).set({
+          status, updatedAt: new Date(),
+          ...(decision === 'verify' ? { verifiedAt: new Date(), verificationNote: evidenceNote } : {}),
+        }).where(and(
+          eq(inventoryLots.id, lotId),
+          eq(inventoryLots.workspaceId, workspaceId),
+          eq(inventoryLots.status, current.status),
+        )).returning();
+        if (!updated) return null;
+        await tx.insert(lotReviewEvents).values({
+          workspaceId, lotId, reviewerId: auth.userId,
+          previousStatus: current.status, nextStatus: status,
+          notes: evidenceNote || null,
+        });
+        return updated;
+      });
+      if (!item) return res.status(409).json({ error: 'Another reviewer changed this lot; reload first' });
       return res.status(200).json({ item });
     }
     return res.status(404).json({ error: 'Unknown action' });

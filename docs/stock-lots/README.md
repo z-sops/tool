@@ -27,3 +27,11 @@ Do not expose contact details to a public marketplace by reusing the internal li
 - Current rate limiter is process memory based, not production distributed enforcement.
 - UI is internal-only and assumes the existing app auth/DB deployment is configured.
 - Automated baseline build and browser tests still require CI or local execution.
+
+## Phase 1.1 improvements
+- Buyer-lot matching is **deterministic and internal-only**. It filters out unverified lots, cross-workspace records and offers over budget. It never treats a partial order as permissible without explicit supplier split consent.
+- Each review change records the reviewer, prior/new status and optional evidence note. Concurrent transitions reject outdated updates.
+- Browser write endpoints require same-origin requests (Origin header).
+- Records permit optional buyer name/contact for follow-up; these are private workspace data and must not be indexed publicly.
+- A lot marked `published` is **not** a guarantee of availability or physical verification. Reconfirm all inventory and documents before any offer.
+- The internal field desk provides a preliminary matching view; quote comparison, uploaded photos, logistics and supplier feeds are later milestones.

@@ -15,6 +15,7 @@ const fields: Record<Section, { key: string; label: string; type?: string }[]> =
     { key: 'category', label: 'Category' }, { key: 'origin', label: 'Surplus source' },
     { key: 'condition', label: 'Condition' }, { key: 'quantity', label: 'Available units', type: 'number' },
     { key: 'minimumOrder', label: 'Minimum order units', type: 'number' },
+    { key: 'splitAllowed', label: 'Supplier explicitly allows split orders', type: 'checkbox' },
     { key: 'unitPriceCny', label: 'Unit price (CNY)', type: 'number' },
     { key: 'warehouseLocation', label: 'Warehouse address' },
     { key: 'evidenceUrl', label: 'HTTPS evidence photo link (optional)' }, { key: 'notes', label: 'Notes' },
@@ -23,7 +24,9 @@ const fields: Record<Section, { key: string; label: string; type?: string }[]> =
     { key: 'productName', label: 'Requested product' }, { key: 'category', label: 'Category' },
     { key: 'quantity', label: 'Units required', type: 'number' },
     { key: 'maxBudgetCny', label: 'Total budget (CNY)', type: 'number' },
-    { key: 'destination', label: 'Destination city/country' }, { key: 'notes', label: 'Buyer notes' },
+    { key: 'destination', label: 'Destination city/country' },
+    { key: 'buyerName', label: 'Buyer name (optional)' }, { key: 'buyerContact', label: 'Buyer contact (optional)' },
+    { key: 'notes', label: 'Buyer notes' },
   ],
 };
 const inputStyle = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500';
@@ -54,6 +57,7 @@ export function StockLotPage() {
   const [section, setSection] = useState<Section>('suppliers');
   const [records, setRecords] = useState<Record<Section, Item[]>>({ suppliers: [], lots: [], demands: [] });
   const [form, setForm] = useState<Record<string, string>>({});
+  const [matches, setMatches] = useState<Item[]>([]);
   const [login, setLogin] = useState({ email: '', password: '', name: '', mode: 'login' });
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -71,13 +75,19 @@ export function StockLotPage() {
       if (data.user) return reloadWorkspaces();
     }).catch(err => setMessage(err.message));
   }, []);
+  async function refreshMatches(workspace = workspaceId) {
+    if (!workspace) { setMatches([]); return; }
+    const data = await request('/api/stocklots?workspaceId=' + encodeURIComponent(workspace) + '&type=matches');
+    setMatches(data.items || []);
+  }
   useEffect(() => {
-    if (!workspaceId) { setRecords({ suppliers: [], lots: [], demands: [] }); return; }
+    if (!workspaceId) { setRecords({ suppliers: [], lots: [], demands: [] }); setMatches([]); return; }
     Promise.all((['suppliers', 'lots', 'demands'] as Section[]).map(async type => {
       const data = await request('/api/stocklots?workspaceId=' + encodeURIComponent(workspaceId) + '&type=' + type);
       return [type, data.items] as const;
     })).then(data => setRecords(Object.fromEntries(data) as Record<Section, Item[]>))
       .catch(err => setMessage(err.message));
+    refreshMatches(workspaceId).catch(err => setMessage(err.message));
   }, [workspaceId]);
 
   async function authenticate(event: React.FormEvent) {
@@ -104,6 +114,7 @@ export function StockLotPage() {
       if (section === 'lots') {
         for (const field of ['quantity', 'minimumOrder']) payload[field] = Number(form[field]);
         payload.unitPriceCnyMinor = Math.round(Number(form.unitPriceCny) * 100);
+        payload.splitAllowed = form.splitAllowed === 'true';
         payload.evidenceUrls = form.evidenceUrl?.trim() ? [form.evidenceUrl.trim()] : [];
         delete payload.unitPriceCny; delete payload.evidenceUrl;
       }
@@ -112,13 +123,14 @@ export function StockLotPage() {
         payload.maxBudgetCnyMinor = Math.round(Number(form.maxBudgetCny) * 100);
         delete payload.maxBudgetCny;
       }
-      for (const key of ['contactName', 'contactDetails', 'licenseNumber', 'notes']) {
+      for (const key of ['contactName', 'contactDetails', 'licenseNumber', 'buyerName', 'buyerContact', 'notes']) {
         if (payload[key] === '') delete payload[key];
       }
       const action = section === 'suppliers' ? 'supplier' : section === 'lots' ? 'lot' : 'demand';
       const data = await request('/api/stocklots?action=' + action, { method: 'POST', body: JSON.stringify(payload) });
       setRecords(prev => ({ ...prev, [section]: [data.item, ...prev[section]] })); setForm({});
-      setMessage('Saved securely. Lots remain unverified until reviewed.');
+      setMessage('Saved. Lots remain unverified until reviewed.');
+      await refreshMatches();
     } catch (err) { setMessage((err as Error).message); }
     finally { setBusy(false); }
   }
@@ -130,8 +142,26 @@ export function StockLotPage() {
       const data = await request('/api/stocklots?action=review', { method: 'POST', body: JSON.stringify({ workspaceId, lotId: lot.id, action, evidenceNote: evidenceNote || undefined }) });
       setRecords(prev => ({ ...prev, lots: prev.lots.map(l => l.id === lot.id ? data.item : l) }));
       setMessage('Lot status updated.');
+      await refreshMatches();
     } catch (err) { setMessage((err as Error).message); }
     finally { setBusy(false); }
+  }
+
+  function exportCsv() {
+    const rows = records[section];
+    if (!rows.length) { setMessage('Nothing to export.'); return; }
+    const columns = Object.keys(rows[0]);
+    // Keep CSV safe when opened in spreadsheet applications.
+    const safeCell = (value: unknown) => {
+      const raw = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
+      const neutralized = /^[=+@\-\t\r]/.test(raw) ? "'" + raw : raw;
+      return '"' + neutralized.replace(/"/g, '""') + '"';
+    };
+    const csv = [columns.map(safeCell).join(','), ...rows.map(row => columns.map(key => safeCell(row[key])).join(','))].join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url; link.download = 'china-stock-lots-' + section + '.csv';
+    document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
   }
 
   return <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
@@ -174,7 +204,7 @@ export function StockLotPage() {
           <h2 className="font-bold text-xl">Add {section === 'demands' ? 'buyer requirement' : section === 'lots' ? 'inventory lot' : 'supplier'}</h2>
           {fields[section].map(field => <div key={field.key}>
             <label className={labelStyle}>{field.label}</label>
-            {field.key === 'supplierId' ? <select required className={inputStyle} value={form.supplierId || ''} onChange={e => setForm(p => ({ ...p, supplierId: e.target.value }))}>
+            {field.key === 'splitAllowed' ? <input type="checkbox" checked={form.splitAllowed === 'true'} onChange={e => setForm(p => ({ ...p, splitAllowed: String(e.target.checked) }))} aria-label="Supplier permits split orders" className="h-5 w-5" /> : field.key === 'supplierId' ? <select required className={inputStyle} value={form.supplierId || ''} onChange={e => setForm(p => ({ ...p, supplierId: e.target.value }))}>
               <option value="">Select registered supplier</option>{records.suppliers.map(s => <option key={s.id} value={s.id}>{s.companyName} — {s.city}</option>)}
             </select> : field.key === 'origin' || field.key === 'condition' ? <select required className={inputStyle} value={form[field.key] || ''} onChange={e => setForm(p => ({ ...p, [field.key]: e.target.value }))}>
               <option value="">Choose</option>{(field.key === 'origin' ? origins : conditions).map(([value, name]) => <option key={value} value={value}>{name}</option>)}
@@ -185,7 +215,8 @@ export function StockLotPage() {
           <button disabled={busy || (section === 'lots' && !records.suppliers.length)} className="bg-blue-700 disabled:opacity-50 text-white rounded-lg px-4 py-2">Save {section.slice(0, -1)}</button>
         </form>
         <section className="border rounded-xl p-5 space-y-3">
-          <h2 className="font-bold text-xl capitalize">Recorded {section}</h2>
+          <div className="flex flex-wrap gap-2 justify-between items-center"><h2 className="font-bold text-xl capitalize">Recorded {section}</h2>
+          <button onClick={exportCsv} type="button" className="text-xs rounded border px-2 py-1">Export private CSV</button></div>
           {!records[section].length && <p className="text-sm text-slate-500">No records yet. Add your first {section === 'demands' ? 'buyer requirement' : section.slice(0,-1)}.</p>}
           {records[section].map(item => <div key={item.id} className="border-b pb-4 space-y-1">
             <div className="font-semibold">{item.companyName || item.productName}</div>
@@ -202,6 +233,19 @@ export function StockLotPage() {
           </div>)}
         </section>
       </div>
+      <section className="border rounded-xl p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="font-bold text-xl">Buyer-to-lot matches</h2>
+            <p className="text-sm text-slate-600">Published lots only. Budget excludes freight, taxes and inspections. No AI pricing claims.</p></div>
+          <button type="button" className="rounded-lg border px-3 py-2 text-sm" onClick={() => refreshMatches().catch(e => setMessage(e.message))}>Refresh matches</button>
+        </div>
+        {!matches.length && <div className="text-sm text-slate-500">No eligible matches. Add buyer demand and publish a documented lot.</div>}
+        {matches.map((match, i) => <div key={match.demandId + match.lotId + i} className="border rounded-lg p-3 flex flex-col gap-1">
+          <div className="font-semibold">{records.demands.find(d => d.id === match.demandId)?.productName || 'Buyer demand'} → {records.lots.find(l => l.id === match.lotId)?.productName || 'Lot'}</div>
+          <div className="text-sm">CNY {(match.totalPriceCnyMinor / 100).toFixed(2)} for {match.units} units · Match score {match.score}/100</div>
+          <div className="text-xs text-amber-800">{match.notes.join(' · ')}</div>
+        </div>)}
+      </section>
     </>}
   </div>;
 }

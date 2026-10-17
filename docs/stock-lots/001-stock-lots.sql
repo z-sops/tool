@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS "inventory_lots" (
  "product_name" varchar(180) NOT NULL, "category" varchar(100) NOT NULL,
  "origin" varchar(40) NOT NULL, "condition" varchar(40) NOT NULL,
  "quantity" integer NOT NULL, "minimum_order" integer NOT NULL,
+ "split_allowed" boolean DEFAULT false NOT NULL,
  "unit_price_cny_minor" integer NOT NULL, "warehouse_location" varchar(250) NOT NULL,
  "evidence_urls" jsonb DEFAULT '[]'::jsonb NOT NULL, "notes" text,
  "status" varchar(24) DEFAULT 'unverified' NOT NULL,
@@ -37,9 +38,22 @@ CREATE TABLE IF NOT EXISTS "buyer_demands" (
  "created_by" uuid NOT NULL REFERENCES "users"("id"),
  "product_name" varchar(180) NOT NULL, "category" varchar(100) NOT NULL,
  "quantity" integer NOT NULL, "max_budget_cny_minor" integer NOT NULL,
- "destination" varchar(150) NOT NULL, "notes" text,
+ "destination" varchar(150) NOT NULL,
+ "buyer_name" varchar(120), "buyer_contact" varchar(200), "notes" text,
  "status" varchar(24) DEFAULT 'open' NOT NULL,
  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
  CONSTRAINT "buyer_demands_positive_values" CHECK ("quantity" > 0 AND "max_budget_cny_minor" > 0)
 );
 CREATE INDEX IF NOT EXISTS "buyer_demands_workspace_idx" ON "buyer_demands"("workspace_id");
+CREATE TABLE IF NOT EXISTS "lot_review_events" (
+ "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+ "workspace_id" uuid NOT NULL REFERENCES "workspaces"("id") ON DELETE cascade,
+ "lot_id" uuid NOT NULL REFERENCES "inventory_lots"("id"),
+ "reviewer_id" uuid NOT NULL REFERENCES "users"("id"),
+ "previous_status" varchar(24) NOT NULL,
+ "next_status" varchar(24) NOT NULL,
+ "notes" text,
+ "created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+CREATE INDEX IF NOT EXISTS "lot_review_events_workspace_idx" ON "lot_review_events"("workspace_id");
+CREATE INDEX IF NOT EXISTS "lot_review_events_lot_idx" ON "lot_review_events"("lot_id");

@@ -23,6 +23,7 @@ export const lotInput = z.object({
   condition: z.enum(lotConditions),
   quantity: z.number().int().positive().max(100000000),
   minimumOrder: z.number().int().positive().max(100000000),
+  splitAllowed: z.boolean().default(false),
   unitPriceCnyMinor: z.number().int().min(0).max(2147483647),
   warehouseLocation: z.string().trim().min(2).max(250),
   evidenceUrls: z.array(z.string().url().max(1000).refine(s => s.startsWith('https://'), 'HTTPS only')).max(10).default([]),
@@ -38,6 +39,8 @@ export const buyerDemandInput = z.object({
   quantity: z.number().int().positive().max(100000000),
   maxBudgetCnyMinor: z.number().int().positive().max(2147483647),
   destination: z.string().trim().min(2).max(150),
+  buyerName: z.string().trim().max(120).optional(),
+  buyerContact: z.string().trim().max(200).optional(),
   notes: z.string().trim().max(3000).optional(),
 }).strict();
 
