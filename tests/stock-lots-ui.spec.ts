@@ -71,7 +71,7 @@ async function openView(page:Page,name:string) {
   if((page.viewportSize()?.width||0)<760){
     await page.getByRole('button',{name:'Open menu'}).click();
   }
-  await page.getByRole('navigation',{name:'Stock-lot navigation'}).getByRole('button',{name,exact:true}).click();
+  await page.getByRole('navigation',{name:'Stock-lot navigation'}).getByRole('button',{name:new RegExp('^'+name+'(?:\\s|$)')}).click();
 }
 
 test('renders genuine private dashboard without the legacy page header',async({page})=>{
