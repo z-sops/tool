@@ -21,10 +21,6 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - name: Diagnose lockfile drift (temporary)
-        run: |
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          git diff -- package-lock.json
       - run: npm ci
       - run: npm run typecheck
       - run: npm run test:unit
