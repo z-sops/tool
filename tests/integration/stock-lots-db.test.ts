@@ -25,7 +25,7 @@ async function invoke(method: 'GET' | 'POST', params: Record<string, string>, bo
   const result: Result = { status: 200, body: null, headers: {} };
   const request = {
     method, query: params, body,
-    headers: { host: 'localhost:3000', origin, 'x-forwarded-proto': 'http', ...(token ? { cookie: 'ns_session=' + token } : {}) },
+    headers: { host: 'localhost:3000', ...(origin ? { origin } : {}), 'x-forwarded-proto': 'http', ...(token ? { cookie: 'ns_session=' + token } : {}) },
   } as unknown as VercelRequest;
   const response = {
     setHeader(name: string, value: string) { result.headers[name] = value; return this; },
@@ -71,7 +71,7 @@ describe('real PostgreSQL stock-lot workflow', () => {
     expect((await get('suppliers', workspaceA, TOKENS.outsider)).status).toBe(403);
     const supplied = { workspaceId: workspaceA, companyName: 'Yiwu Factory', city: 'Yiwu', province: 'Zhejiang' };
     expect((await post('supplier', supplied, TOKENS.owner, 'https://bad.example')).status).toBe(403);
-    expect((await post('supplier', supplied, TOKENS.owner, undefined)).status).toBe(403);
+    expect((await post('supplier', supplied, TOKENS.owner, '')).status).toBe(403);
   });
 
   it('creates suppliers and isolates foreign supplier references', async () => {
