@@ -67,4 +67,4 @@ jobs:
         run: |
           test "$(psql -v ON_ERROR_STOP=1 -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('saved_listings','saved_analyses','lot_suppliers','inventory_lots','buyer_demands');")" = 5
       - name: Test real database API and permission workflow
-        run: npx vitest run tests/integration/stock-lots-db.test.ts
+        run: npx vitest run --config vitest.integration.config.ts
