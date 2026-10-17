@@ -25,3 +25,46 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:unit
       - run: npm run build
+
+  postgres-integration:
+    name: PostgreSQL migrations and API workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: stock_lots_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d stock_lots_ci"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/stock_lots_ci
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: stock_lots_ci
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Apply existing baseline schema
+        run: psql -v ON_ERROR_STOP=1 -f drizzle/0000_marvelous_living_lightning.sql
+      - name: Apply new isolated lot migration
+        run: psql -v ON_ERROR_STOP=1 -f docs/stock-lots/001-stock-lots.sql
+      - name: Assert baseline and lot tables coexist
+        run: |
+          psql -v ON_ERROR_STOP=1 -At -c "SELECT CASE WHEN count(*)=5 THEN 'OK' ELSE (1/0)::text END FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('saved_listings','saved_analyses','lot_suppliers','inventory_lots','buyer_demands');"
+      - name: Test real database API and permission workflow
+        run: npx vitest run tests/integration/stock-lots-db.test.ts
