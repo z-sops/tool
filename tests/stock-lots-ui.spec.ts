@@ -161,3 +161,22 @@ test('shows a clear preview database configuration warning', async ({page}) => {
   await page.goto('/stock-lots');
   await expect(page.getByRole('alert')).toContainText('This preview has no database connected');
 });
+
+test('preview database blocker offers a read-only interactive dashboard demo',async({page})=>{
+  await mockApi(page,{anonymous:true});
+  await page.route('**/api/stocklots-status',async route=>route.fulfill({
+    status:200,contentType:'application/json',
+    body:JSON.stringify({service:'stock-lots',databaseConfigured:false}),
+  }));
+  await page.goto('/stock-lots');
+  await page.getByRole('button',{name:'View dashboard demo'}).click();
+  await expect(page.getByTestId('stock-lot-dashboard')).toBeVisible();
+  await expect(page.getByTestId('demo-banner')).toContainText('FICTIONAL DATA');
+  await expect(page.getByText('Stainless Steel Cutlery Sets')).toBeVisible();
+  await openView(page,'Stock lots');
+  await expect(page.getByText('LED Pendant Lighting Collection')).toBeVisible();
+  await page.getByRole('button',{name:'Add stock lot'}).click();
+  await expect(page.getByText('Read-only demo: connect a preview database')).toBeVisible();
+  await page.getByRole('button',{name:'Exit demo'}).click();
+  await expect(page.getByRole('heading',{name:'Stock-Lot Intelligence'})).toBeVisible();
+});

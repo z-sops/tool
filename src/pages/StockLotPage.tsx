@@ -13,6 +13,30 @@ const navigation: { id: View; label: string; icon: typeof Package }[] = [
   { id: 'matches', label: 'Lot matching', icon: Sparkles },
 ];
 const categoryColors = ['lot-thumb-a', 'lot-thumb-b', 'lot-thumb-c', 'lot-thumb-d'];
+
+// All entries below are fictional showcase examples, not marketplace inventory.
+const demoWorkspaceId = 'local-demo-workspace';
+const demoCreatedAt = '2026-10-10T10:00:00Z';
+const demoSuppliers: Supplier[] = [
+  {id:'demo-supplier-1',workspaceId:demoWorkspaceId,companyName:'DEMO Yiwu Overstock Factory',city:'Yiwu',province:'Zhejiang',status:'unverified',createdAt:demoCreatedAt},
+  {id:'demo-supplier-2',workspaceId:demoWorkspaceId,companyName:'DEMO Guzhen Lighting Warehouse',city:'Zhongshan',province:'Guangdong',status:'unverified',createdAt:demoCreatedAt},
+  {id:'demo-supplier-3',workspaceId:demoWorkspaceId,companyName:'DEMO Jieyang Kitchenware',city:'Jieyang',province:'Guangdong',status:'unverified',createdAt:demoCreatedAt},
+];
+const demoLots: Lot[] = [
+  {id:'demo-lot-1',workspaceId:demoWorkspaceId,supplierId:'demo-supplier-1',productName:'Stainless Steel Cutlery Sets',category:'Kitchenware',origin:'factory_overstock',condition:'new_sealed',quantity:2400,minimumOrder:500,splitAllowed:true,unitPriceCnyMinor:250,warehouseLocation:'Yiwu, Zhejiang',evidenceUrls:[],status:'published',createdAt:demoCreatedAt},
+  {id:'demo-lot-2',workspaceId:demoWorkspaceId,supplierId:'demo-supplier-2',productName:'LED Pendant Lighting Collection',category:'Lighting',origin:'cancelled_order',condition:'new_open_box',quantity:800,minimumOrder:400,splitAllowed:false,unitPriceCnyMinor:14500,warehouseLocation:'Guzhen, Guangdong',evidenceUrls:[],status:'unverified',createdAt:demoCreatedAt},
+  {id:'demo-lot-3',workspaceId:demoWorkspaceId,supplierId:'demo-supplier-3',productName:'Nonstick Cookware Set',category:'Kitchenware',origin:'export_leftover',condition:'new_sealed',quantity:1200,minimumOrder:200,splitAllowed:true,unitPriceCnyMinor:3800,warehouseLocation:'Jieyang, Guangdong',evidenceUrls:[],status:'documents_checked',createdAt:demoCreatedAt},
+  {id:'demo-lot-4',workspaceId:demoWorkspaceId,supplierId:'demo-supplier-1',productName:'Cotton Storage Baskets',category:'Homeware',origin:'wholesale_clearance',condition:'mixed_new',quantity:3600,minimumOrder:600,splitAllowed:true,unitPriceCnyMinor:875,warehouseLocation:'Yiwu, Zhejiang',evidenceUrls:[],status:'published',createdAt:demoCreatedAt},
+];
+const demoDemands: Demand[] = [
+  {id:'demo-buyer-1',workspaceId:demoWorkspaceId,productName:'Stainless steel cutlery',category:'Kitchenware',quantity:1000,maxBudgetCnyMinor:500000,destination:'Karachi, Pakistan',status:'open',createdAt:demoCreatedAt},
+  {id:'demo-buyer-2',workspaceId:demoWorkspaceId,productName:'Cotton storage baskets',category:'Homeware',quantity:1200,maxBudgetCnyMinor:1500000,destination:'Dubai, UAE',status:'open',createdAt:demoCreatedAt},
+];
+const demoMatches: BuyerMatch[] = [
+  {lotId:'demo-lot-1',demandId:'demo-buyer-1',units:1000,score:91,fullLot:false,totalPriceCnyMinor:250000,notes:['FICTIONAL MATCH','Illustrative goods price only','Shipping and taxes excluded']},
+  {lotId:'demo-lot-4',demandId:'demo-buyer-2',units:1200,score:87,fullLot:false,totalPriceCnyMinor:1050000,notes:['FICTIONAL MATCH','Supplier consent is hypothetical','No inventory has been inspected']},
+];
+
 const statusColor: Record<string,string> = { published:'lot-green', documents_checked:'lot-blue', unverified:'lot-yellow', withdrawn:'lot-gray', open:'lot-green' };
 const sectionForView: Partial<Record<View,FormSection>> = { lots:'lots', suppliers:'suppliers',buyers:'demands' };
 
@@ -66,6 +90,7 @@ export function StockLotPage() {
   const [user,setUser] = useState<{id:string;email:string}|null>(null);
   const [sessionLoading,setSessionLoading] = useState(true);
   const [databaseReady,setDatabaseReady] = useState<boolean|null>(null);
+  const [demoMode,setDemoMode] = useState(false);
   const [authMode,setAuthMode] = useState<'login'|'signup'>('login');
   const [credentials,setCredentials] = useState({email:'',password:'',displayName:''});
   const [workspaces,setWorkspaces] = useState<WorkspaceEntry[]>([]);
@@ -89,7 +114,7 @@ export function StockLotPage() {
   const [category,setCategory] = useState('all');
   const [sort,setSort] = useState('recent');
   const activeWorkspace = workspaces.find(w => w.workspace.id === workspaceId);
-  const canReview = activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin';
+  const canReview = !demoMode && (activeWorkspace?.role === 'owner' || activeWorkspace?.role === 'admin');
   const categories = useMemo(() => [...new Set(lots.map(x => x.category))].sort(),[lots]);
   const listedValue = lots.reduce((sum,l)=>sum + l.quantity*l.unitPriceCnyMinor,0);
   const published = lots.filter(l=>l.status==='published').length;
@@ -112,6 +137,7 @@ export function StockLotPage() {
     .finally(()=>{if(active)setSessionLoading(false);});
     return ()=>{active=false;};},[]);
   async function reload(wid=workspaceId) {
+    if(demoMode){setNotice('Demo-only: sample records are local and cannot be synced.');return;}
     if(!wid)return;
     setLoading(true);setError('');
     try{
@@ -122,7 +148,7 @@ export function StockLotPage() {
       setDemands(results[2].items as Demand[]);setMatches(results[3].items as BuyerMatch[]);
     }catch(e){setError((e as Error).message);}finally{setLoading(false);}
   }
-  useEffect(()=>{if(workspaceId)void reload(workspaceId);else {setSuppliers([]);setLots([]);setDemands([]);setMatches([]);}},[workspaceId]);
+  useEffect(()=>{if(demoMode)return;if(workspaceId)void reload(workspaceId);else {setSuppliers([]);setLots([]);setDemands([]);setMatches([]);}},[workspaceId,demoMode]);
   async function login(e:FormEvent){
     e.preventDefault();setBusy(true);setError('');
     try{
@@ -138,6 +164,7 @@ export function StockLotPage() {
     }catch(e){setError((e as Error).message);}finally{setBusy(false);}
   }
   async function save(section:FormSection,values:Record<string,string>){
+    if(demoMode){setError('The demo is read-only. Connect a database to save real records.');return;}
     if(!workspaceId)return;setBusy(true);setError('');
     try {
       const payload:Record<string,unknown>={...values,workspaceId};
@@ -155,6 +182,7 @@ export function StockLotPage() {
     }catch(e){setError((e as Error).message);}finally{setBusy(false);}
   }
   async function review(lot:Lot,action:'verify'|'publish'|'withdraw') {
+    if(demoMode){setNotice('Demo records cannot be reviewed or published.');return;}
     const note=action==='verify'?window.prompt('Describe reviewed documents (15+ characters):'):undefined;
     if(action==='verify'&&note===null)return;
     setBusy(true);setError('');
@@ -163,6 +191,7 @@ export function StockLotPage() {
     }catch(e){setError((e as Error).message);}finally{setBusy(false);}
   }
   function exportCsv(section:FormSection){
+    if(demoMode){setNotice('Demo export disabled: all records are fictional.');return;}
     const records=section==='suppliers'?suppliers:section==='lots'?lots:demands;
     if(!records.length){setError('There are no records to export.');return;}
     const keys=Object.keys(records[0]);
@@ -185,7 +214,24 @@ export function StockLotPage() {
     buyers:'Track what wholesale buyers are looking for.',
     matches:'Deterministic recommendations against published inventory only.',
   };
-  const action=(section:FormSection)=>{setError('');setForm(section);};
+
+  function enterDemo(){
+    setDemoMode(true);
+    setUser({id:'demo-user-local',email:'demo@local.invalid'});
+    setWorkspaces([{workspace:{id:demoWorkspaceId,name:'China Sourcing DEMO'},role:'member'}]);
+    setWorkspaceId(demoWorkspaceId);
+    setSuppliers(demoSuppliers);setLots(demoLots);setDemands(demoDemands);setMatches(demoMatches);
+    setNotice('FICTIONAL DATA · Read-only demonstration. Nothing is saved.');
+    setError('');setView('overview');
+  }
+  function exitDemo(){
+    setDemoMode(false);setUser(null);setWorkspaces([]);setWorkspaceId('');
+    setSuppliers([]);setLots([]);setDemands([]);setMatches([]);setNotice('');setError('');
+  }
+  const action=(section:FormSection)=>{
+    if(demoMode){setNotice('Read-only demo: connect a preview database to add real '+section+'.');return;}
+    setError('');setForm(section);
+  };
 
   if(sessionLoading)return <div className="lot-standalone"><div className="lot-loading">Preparing your sourcing desk…</div></div>;
   if(!user)return <div className="lot-standalone lot-access"><div className="lot-auth-shell">
@@ -194,6 +240,11 @@ export function StockLotPage() {
     <h1>Stock-Lot Intelligence</h1><p>Sign in to your private supplier and inventory workspace.</p>
     {databaseReady === false && <div className="lot-flash lot-flash-error" role="alert">
       This preview has no database connected. Signup and login are unavailable until an isolated preview database is configured.
+    </div>}
+    {databaseReady === false && <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 my-4">
+      <strong className="block text-sm text-teal-900">Explore the frontend now</strong>
+      <p className="text-xs text-teal-700 mt-1 mb-3">View a read-only dashboard with fictional suppliers, lots and prices. No account or database required.</p>
+      <button type="button" className="lot-btn-primary w-full justify-center" onClick={enterDemo}>View dashboard demo <ArrowRight size={16}/></button>
     </div>}
     <form className="lot-auth-form" onSubmit={login}>
       {authMode==='signup'&&<label>Your name<input required value={credentials.displayName} onChange={e=>setCredentials(p=>({...p,displayName:e.target.value}))} /></label>}
@@ -235,10 +286,14 @@ export function StockLotPage() {
       <header className="lot-topbar">
         <button className="lot-icon-button lot-menu-trigger" aria-label="Open menu" onClick={()=>setSidebarOpen(true)}><Menu size={20}/></button>
         <div className="lot-breadcrumb">Operations <span>/</span> <b>{mainTitle[view]}</b></div>
-        <div className="lot-top-actions"><span className="lot-pilot-pill"><span/> China pilot</span>
+        <div className="lot-top-actions">{demoMode && <button className="lot-btn-light" type="button" onClick={exitDemo}>Exit demo</button>}<span className="lot-pilot-pill"><span/> China pilot</span>
           <span className="lot-avatar" title={user.email}>{(user.email?.[0]||'U').toUpperCase()}</span></div>
       </header>
       <main className="lot-content">
+        {demoMode && <div role="status" data-testid="demo-banner" className="lot-flash lot-flash-error">
+          <strong>DEMO MODE · FICTIONAL DATA · READ-ONLY</strong>
+          <span>These suppliers, prices, lots and buyer matches are examples, not real inventory.</span>
+        </div>}
         <div className="lot-page-head"><div><div className="lot-kicker">SOURCING WORKSPACE · CHINA</div>
           <h1>{mainTitle[view]}</h1><p>{mainSub[view]}</p></div>
           <div className="lot-head-actions">
