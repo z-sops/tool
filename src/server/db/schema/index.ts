@@ -190,3 +190,81 @@ export type ApiUsageLog = typeof apiUsageLog.$inferSelect;
 export type NewApiUsageLog = typeof apiUsageLog.$inferInsert;
 export type Entitlement = typeof entitlements.$inferSelect;
 export type NewEntitlement = typeof entitlements.$inferInsert;
+
+// Stock-lot pilot: isolated tables; existing listing/research records are untouched.
+export const lotSuppliers = pgTable('lot_suppliers', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  createdBy: uuid('created_by').notNull().references(() => users.id),
+  companyName: varchar('company_name', { length: 180 }).notNull(),
+  city: varchar('city', { length: 100 }).notNull(),
+  province: varchar('province', { length: 100 }).notNull(),
+  contactName: varchar('contact_name', { length: 120 }),
+  contactDetails: varchar('contact_details', { length: 250 }),
+  licenseNumber: varchar('license_number', { length: 100 }),
+  notes: text('notes'),
+  status: varchar('status', { length: 24 }).default('unverified').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  workspaceIdx: index('lot_suppliers_workspace_idx').on(table.workspaceId),
+}));
+
+export const inventoryLots = pgTable('inventory_lots', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  supplierId: uuid('supplier_id').notNull().references(() => lotSuppliers.id),
+  createdBy: uuid('created_by').notNull().references(() => users.id),
+  productName: varchar('product_name', { length: 180 }).notNull(),
+  category: varchar('category', { length: 100 }).notNull(),
+  origin: varchar('origin', { length: 40 }).notNull(),
+  condition: varchar('condition', { length: 40 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  minimumOrder: integer('minimum_order').notNull(),
+  splitAllowed: boolean('split_allowed').default(false).notNull(),
+  unitPriceCnyMinor: integer('unit_price_cny_minor').notNull(),
+  warehouseLocation: varchar('warehouse_location', { length: 250 }).notNull(),
+  evidenceUrls: jsonb('evidence_urls').$type<string[]>().default([]).notNull(),
+  notes: text('notes'),
+  status: varchar('status', { length: 24 }).default('unverified').notNull(),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
+  verificationNote: text('verification_note'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  workspaceIdx: index('inventory_lots_workspace_idx').on(table.workspaceId),
+  supplierIdx: index('inventory_lots_supplier_idx').on(table.supplierId),
+  statusIdx: index('inventory_lots_status_idx').on(table.status),
+}));
+
+export const buyerDemands = pgTable('buyer_demands', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  createdBy: uuid('created_by').notNull().references(() => users.id),
+  productName: varchar('product_name', { length: 180 }).notNull(),
+  category: varchar('category', { length: 100 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  maxBudgetCnyMinor: integer('max_budget_cny_minor').notNull(),
+  destination: varchar('destination', { length: 150 }).notNull(),
+  buyerName: varchar('buyer_name', { length: 120 }),
+  buyerContact: varchar('buyer_contact', { length: 200 }),
+  notes: text('notes'),
+  status: varchar('status', { length: 24 }).default('open').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  workspaceIdx: index('buyer_demands_workspace_idx').on(table.workspaceId),
+}));
+
+/** Immutable status-change audit. The admin field desk is private to a workspace. */
+export const lotReviewEvents = pgTable('lot_review_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: uuid('workspace_id').notNull().references(() => workspaces.id, { onDelete: 'cascade' }),
+  lotId: uuid('lot_id').notNull().references(() => inventoryLots.id),
+  reviewerId: uuid('reviewer_id').notNull().references(() => users.id),
+  previousStatus: varchar('previous_status', { length: 24 }).notNull(),
+  nextStatus: varchar('next_status', { length: 24 }).notNull(),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  workspaceIdx: index('lot_review_events_workspace_idx').on(table.workspaceId),
+  lotIdx: index('lot_review_events_lot_idx').on(table.lotId),
+}));

@@ -15,12 +15,16 @@
   ],
   "rewrites": [
     {
+      "source": "/api/(.*)",
+      "destination": "/api/router?route=$1"
+    },
+    {
       "source": "/((?!assets|robots\\.txt|sitemap\\.xml|api).*)",
       "destination": "/index.html"
     }
   ],
   "functions": {
-    "api/[...slug].ts": {
+    "api/router.ts": {
       "maxDuration": 30
     }
   }

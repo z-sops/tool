@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { StockLotPage } from './pages/StockLotPage';
 import { Header, Footer } from './components/layout';
 import { HomePage } from './pages/HomePage';
 import { ExplorePage } from './pages/ExplorePage';
@@ -31,18 +32,18 @@ function NotFoundPage() {
   return <NotFound />;
 }
 
-function App() {
+function AppContent() {
+  const isStockLot = useLocation().pathname.startsWith('/stock-lots');
   return (
-    <BrowserRouter>
-      <SEOApp>
-        <div className="min-h-screen bg-white flex flex-col">
-          <Header />
+    <div className="min-h-screen bg-white flex flex-col">
+      {!isStockLot && <Header />}
           <main className="flex-1">
             <Routes>
               {/* Home */}
               <Route path="/" element={<HomePage />} />
               
               {/* Main Pages */}
+              <Route path="/stock-lots" element={<StockLotPage />} />
               <Route path="/explore" element={<ExplorePage />} />
               <Route path="/learn" element={<LearnPage />} />
               <Route path="/create" element={<CreatePage />} />
@@ -71,11 +72,13 @@ function App() {
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </main>
-          <Footer />
-        </div>
-      </SEOApp>
-    </BrowserRouter>
+      {!isStockLot && <Footer />}
+    </div>
   );
+}
+
+function App() {
+  return <BrowserRouter><SEOApp><AppContent /></SEOApp></BrowserRouter>;
 }
 
 function SEOApp({ children }: { children: React.ReactNode }) {

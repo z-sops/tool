@@ -147,11 +147,29 @@ register('/api/workspace/update', async (req, res) => {
   return handler(req, res);
 });
 
+register('/api/stocklots', async (req, res) => {
+  const { default: handler } = await import('../server/api/stocklots/index.js');
+  return handler(req, res);
+});
+
+register('/api/stocklots-status', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  return res.status(200).json({service: 'stock-lots', databaseConfigured: Boolean(process.env.DATABASE_URL)});
+});
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const pathname = req.url || '/';
+  // Vercel routes all /api/* paths to this one serverless function.
+  const q = req.query.route;
+  const captured = typeof q === 'string' ? q : Array.isArray(q) ? q.join('/') : '';
+  const pathname = captured ? '/api/' + captured : (req.url || '/').split('?')[0];
   
   const match = matchRoute(pathname);
   if (match) {
+    if ((pathname === '/api/auth/login' || pathname === '/api/auth/signup') && !process.env.DATABASE_URL) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(503).json({ error: 'Stock-Lot login is unavailable: a preview database has not been configured.' });
+    }
     req.query = { ...req.query, ...match.params };
     return match.handler(req, res);
   }

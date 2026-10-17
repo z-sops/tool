@@ -1,0 +1,98 @@
+name: Stock-lot MVP checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [feature/stock-lot-mvp]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - run: npm run build
+
+  postgres-integration:
+    name: PostgreSQL migrations and API workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: stock_lots_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d stock_lots_ci"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/stock_lots_ci
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: stock_lots_ci
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Apply existing baseline schema
+        run: psql -v ON_ERROR_STOP=1 -f drizzle/0000_marvelous_living_lightning.sql
+      - name: Apply new isolated lot migration
+        run: psql -v ON_ERROR_STOP=1 -f docs/stock-lots/001-stock-lots.sql
+      - name: Assert baseline and lot tables coexist
+        run: |
+          test "$(psql -v ON_ERROR_STOP=1 -At -c "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('saved_listings','saved_analyses','lot_suppliers','inventory_lots','buyer_demands');")" = 5
+      - name: Test real database API and permission workflow
+        run: npx vitest run --config vitest.integration.config.ts
+
+  frontend-browser:
+    name: Desktop and mobile stock-lot UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium browser
+        run: npx playwright install --with-deps chromium
+      - name: Exercise stock-lot UI on desktop and mobile
+        run: npx playwright test tests/stock-lots-ui.spec.ts --project=desktop-chrome --project=mobile-chrome
+      - name: Store failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-lot-browser-diagnostics
+          path: |
+            test-results
+            playwright-report
+          retention-days: 3
+          if-no-files-found: ignore
