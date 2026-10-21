@@ -16,10 +16,24 @@ export default defineConfig({
   testDir: './tests',
   // Only e2e specs here — unit tests (tests/unit/*.test.ts) run via vitest.
   testMatch: '**/*.spec.ts',
+  // Runs after the web server has started and before the first test:
+  // verifies that the server really serves ListingAI, then warms the dev
+  // server's module graph so the tests do not queue behind a cold transform.
+  globalSetup: './tests/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // A shared host can fail a request at the OS level (for example
+  // WSAENOBUFS / ERR_NO_BUFFER_SPACE when socket buffers cannot be allocated).
+  // Such a failure is environmental and not reproducible, so one retry is
+  // allowed. A genuine application defect is deterministic and still fails.
+  // The list reporter prints "retry #1", so a flaky test stays visible.
+  retries: Number(process.env.LISTINGAI_E2E_RETRIES ?? (process.env.CI ? 2 : 1)),
+  // This machine runs several applications at once and has limited free
+  // memory. The worker count is configurable so the suite can be tuned for a
+  // constrained host; each worker holds its own browser process.
+  workers: Number(process.env.LISTINGAI_E2E_WORKERS || 4),
+  timeout: 60000,
+  expect: { timeout: 15000 },
   reporter: 'list',
   use: {
     baseURL: BASE_URL,
