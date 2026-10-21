@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { assertListingAI } from '../global-setup';
 
@@ -18,8 +19,15 @@ describe('e2e preflight identity guard', () => {
   it('requires application-specific markers, not the legacy brand string', async () => {
     const html = await readFile(path.join(process.cwd(), 'index.html'), 'utf8');
     expect(html).toContain('listingai:app');
+    expect(html).toContain('application-name" content="ListingAI');
     expect(html).toContain('listingai-woad.vercel.app');
-    expect(html).toContain('/src/main.tsx');
+  });
+
+  it('accepts the markers in the built document as well', async () => {
+    const built = path.join(process.cwd(), 'dist', 'index.html');
+    if (!existsSync(built)) return; // the build has not run in this environment
+    const html = await readFile(built, 'utf8');
+    expect(() => assertListingAI(html, 'http://127.0.0.1:5181')).not.toThrow();
   });
 
   it('rejects a document that only carries the legacy brand name', () => {
@@ -50,8 +58,9 @@ describe('e2e preflight identity guard', () => {
   it('rejects a document that mentions another known application', () => {
     const html = [
       '<html><head><meta name="listingai:app" content="listingai-web" />',
+      '<meta name="application-name" content="ListingAI" />',
       '<link rel="canonical" href="https://listingai-woad.vercel.app/" />',
-      '<script src="/src/main.tsx"></script></head><body>Snap to Fit</body></html>',
+      '</head><body>Snap to Fit</body></html>',
     ].join('');
     expect(() => assertListingAI(html, 'http://127.0.0.1:5181')).toThrow(/different application/);
   });

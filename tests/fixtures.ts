@@ -20,6 +20,13 @@ import { test as base, expect, type Page } from '@playwright/test';
 export const test = base.extend<{ page: Page }>({
   page: async ({ page }, use) => {
     const originalGoto = page.goto.bind(page);
+    // Console and page errors are captured so a render failure can be
+    // diagnosed instead of only reported as a timeout.
+    const consoleErrors: string[] = [];
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+    page.on('pageerror', (err) => consoleErrors.push('pageerror: ' + err.message));
 
     const goto = (async (url: string, options?: Parameters<Page['goto']>[1]) => {
       const response = await originalGoto(url, options);
@@ -47,13 +54,15 @@ export const test = base.extend<{ page: Page }>({
                 hasRoot: !!root,
                 rootChildren: root ? root.childElementCount : -1,
                 rootHtmlLength: root ? root.innerHTML.length : -1,
+                scripts: Array.from(document.scripts).map((s) => s.src || 'inline').slice(0, 8),
               };
             })
             .catch(() => null);
           throw new Error(
-            `The application did not render after navigating to ${url}. State: ${JSON.stringify(state)}. Cause: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
+            `The application did not render after navigating to ${url}. State: ${JSON.stringify(state)}. ` +
+              `Console errors: ${JSON.stringify(consoleErrors.slice(0, 5))}. Cause: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
           );
         }
       }

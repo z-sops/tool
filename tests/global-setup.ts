@@ -26,14 +26,21 @@ import type { FullConfig } from '@playwright/test';
  *
  * These are application-specific, not a generic document title:
  *  - `listingai:app` is a meta tag that only ListingAI emits.
+ *  - `application-name: ListingAI` is ListingAI's own application name.
  *  - `listingai-woad.vercel.app` is ListingAI's canonical production origin.
- *  - `/src/main.tsx` is ListingAI's Vite entry module.
+ *
+ * All three are present in the source document and in the built document, so
+ * the guard works against the dev server and against the production bundle.
  *
  * The legacy "NicheScout" brand string is deliberately NOT part of the
  * required set: the brand alone does not identify the application, and other
  * applications may reuse it.
  */
-const LISTINGAI_MARKERS = ['listingai:app', 'listingai-woad.vercel.app', '/src/main.tsx'];
+const LISTINGAI_MARKERS = [
+  'listingai:app',
+  'application-name" content="ListingAI',
+  'listingai-woad.vercel.app',
+];
 
 /** Applications that must never be validated by this suite. */
 const FOREIGN_MARKERS = ['MRCGP', 'Snap to Fit', 'ZTech', 'ztech'];

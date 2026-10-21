@@ -40,11 +40,16 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: `npm run dev -- --host ${HOST} --port ${PORT} --strictPort`,
+    // The suite runs against the production bundle, not the dev server. The
+    // dev server transforms modules on demand, so under parallel load a module
+    // request can fail and the application never mounts; the built bundle has
+    // no such failure mode. It also means the e2e evidence is about the exact
+    // artefact that ships.
+    command: `npm run build && npx vite preview --host ${HOST} --port ${PORT} --strictPort`,
     url: BASE_URL,
     // Never reuse an already-listening server: that validates a foreign app.
     reuseExistingServer: false,
-    timeout: 120000,
+    timeout: 180000,
     env: {
       LISTINGAI_DEV_PORT: String(PORT),
       PORT: String(PORT),

@@ -118,6 +118,7 @@ corrected export.**
 | With the new weights, the flat-file adapter then beat the category adapter on a category template | Made `template-id` and `locale` decisive for the category adapter and reduced the flat-file product-type weight |
 | The approval checkbox was a controlled input that could not be ticked when the file had no corrections, so the export stayed permanently disabled | The master approval is now separate state, so the control behaves correctly in every case |
 | The "no network request during analysis" assertion counted the application's own lazy chunk and failed | The assertion is now precise: no request to another origin and no request with a body, plus a check that the file contents appear in no request body |
+| One e2e run in five left `#root` empty: the document loaded but React never mounted | The dev server transforms modules on demand, so under parallel load a module request can fail and the application never mounts. The suite now runs against the **production bundle** (`npm run build && vite preview`), which has no such failure mode, and the render diagnostic now reports the page state and the console errors |
 | `fflate` added 40 kB to the initial bundle for every page | The decoder is now a dynamic import, and the whole Bulk File Doctor page is lazily loaded |
 
 ---
@@ -134,6 +135,15 @@ corrected export.**
 
 The 2 skips are the intentional desktop-only navigation tests, skipped only on the
 mobile project.
+
+### Test harness
+
+The e2e suite starts the production build (`npm run build && vite preview`) rather than the
+dev server. Two reasons: the dev server transforms modules on demand, so under parallel load
+a module request can fail and the application never mounts, which produced one flaky run in
+five; and the built bundle is the artefact that actually ships, so the evidence is about
+what users receive. The identity preflight was adjusted to markers that exist in both the
+source and the built document.
 
 ### Browser demonstration
 
