@@ -131,7 +131,7 @@ describe('template intelligence', () => {
     const registry = createSchemaRegistry([
       {
         productType: 'HOME_KITCHEN',
-        marketplace: 'ATVPDKIKX0DER',
+        marketplace: 'TEST-MARKETPLACE-01',
         requiredAttributes: [{ name: 'item_name', label: 'Item Name' }],
         source: 'verified schema fixture',
         verifiedAt: '2026-01-01',

@@ -200,6 +200,34 @@ test.describe('Bulk File Doctor (browser)', () => {
     await expect(groups.first()).toContainText('ListingAI classification');
   });
 
+  test('reads a tab-delimited Amazon Processing Report and matches it to the file rows', async ({ page }) => {
+    await upload(page, 'listings.csv', 'seller-sku,item-name\nDEMO-SKU-001,Widget\nDEMO-SKU-002,Gadget\n');
+    // Layout per Amazon Seller University troubleshooting guidance: SKU in column
+    // B, error code in column C, error description in column E.
+    const report = [
+      'Feed Type\tSKU\tError Code\tError Description\tComment',
+      'Flat File\tDEMO-SKU-001\t90220\tValue is not valid for this category\tCheck the product type',
+      'Flat File\tDEMO-SKU-009\t8058\tThe following attributes are missing\t',
+    ].join('\n');
+    await page.setInputFiles('[data-testid="file-doctor-amazon-upload"]', {
+      name: 'Processing Report.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from(report, 'utf8'),
+    });
+    const groups = page.getByTestId('file-doctor-amazon-group');
+    await expect(groups.first()).toBeVisible();
+    await expect(groups).toHaveCount(2);
+    // Both reported codes are surfaced, each with its own root-cause group.
+    const panel = page.getByTestId('file-doctor-amazon-errors');
+    await expect(panel).toContainText('90220');
+    await expect(panel).toContainText('8058');
+    await expect(groups.first()).toContainText('affected row(s)');
+    // The SKU that exists in the file is matched to its row, the one that is
+    // not in the file is reported without a row.
+    await expect(panel).toContainText('DEMO-SKU-001');
+    await expect(panel).toContainText('DEMO-SKU-009');
+  });
+
   test('downloads the processing-report review as JSON', async ({ page }) => {
     await upload(page, 'listings.csv', 'sku,item-name\nA-1,Widget\n');
     await page.getByTestId('file-doctor-amazon-sample').click();

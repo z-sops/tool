@@ -251,7 +251,17 @@ export function BulkFileDoctorPage() {
     setUnmatched([]);
     if (!selected && !synthetic) return;
     try {
-      const raw = synthetic ? syntheticFixture : JSON.parse(await selected!.text());
+      let raw: unknown = syntheticFixture;
+      if (!synthetic) {
+        const text = await selected!.text();
+        // A processing report is usually a tab-delimited text file; a JSON
+        // document is also accepted.
+        try {
+          raw = JSON.parse(text);
+        } catch {
+          raw = text;
+        }
+      }
       const parsed = parseAmazonReport(raw);
       if (!parsed) {
         setError('This document is not recognised as a processing report. The file was not used.');
@@ -463,7 +473,7 @@ export function BulkFileDoctorPage() {
                 <input
                   data-testid="file-doctor-amazon-upload"
                   type="file"
-                  accept=".json,application/json"
+                  accept=".json,.txt,.tsv,.tab,application/json,text/plain"
                   className="text-sm"
                   onChange={event => {
                     const selected = event.target.files?.[0];

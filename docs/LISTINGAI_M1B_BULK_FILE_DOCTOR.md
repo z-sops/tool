@@ -64,7 +64,11 @@ attributes and parent/child SKU relationships**.
 
 ### C. Amazon processing report analyzer — `src/lib/bulk/amazon-errors.ts`
 
-* A documented adapter interface plus one JSON adapter. **Error codes are never
+* A documented adapter interface with two adapters: a JSON adapter and a
+  **tab-delimited Amazon Processing Report adapter**. The Processing Report layout
+  follows Amazon's own Seller University troubleshooting guide, which states that the
+  SKU is in column B, the error code in column C and the error description in column
+  E; a header row is used when the document has one. **Error codes are never
   manufactured**: a code exists only when the supplied document contains one, and the
   raw record is preserved verbatim.
 * **SKU-to-error matching.** Reported errors are matched to the rows of the source
@@ -82,7 +86,11 @@ attributes and parent/child SKU relationships**.
 * Source-file findings and Amazon-reported errors stay **separate origins**. A local
   finding never receives an Amazon error code.
 * No adapter is marked `validatedAgainstAmazonOutput`. The bundled fixture is
-  explicitly synthetic and labelled as such in the file and in the interface.
+  explicitly synthetic and labelled as such in the file and in the interface. The
+  Processing Report adapter is **not** validated against a genuine Amazon export
+  either: no real processing report has been supplied for this project. It states
+  which interpretation it used (header row, or the documented column positions) in
+  its notes, so the seller can see how a row was read.
 
 ### D. Safe correction engine — `src/lib/bulk/corrections.ts`
 
@@ -129,9 +137,9 @@ corrected export.**
 | --- | --- | --- |
 | Clean install | `npm ci` | pass |
 | Types | `npm run typecheck` | pass, 0 errors |
-| Unit | `npm run test:unit` | pass, **119 tests in 7 files** |
+| Unit | `npm run test:unit` | pass, **127 tests in 8 files** |
 | Build | `npm run build` | pass, 450.65 kB / 115.03 kB gzip |
-| Browser (E2E) | `npm run test:e2e` | pass, **348 passed / 2 skipped / 0 failed**, twice consecutively |
+| Browser (E2E) | `npm run test:e2e` | pass, **350 passed / 2 skipped / 0 failed**, twice consecutively |
 
 The 2 skips are the intentional desktop-only navigation tests, skipped only on the
 mobile project.
@@ -155,14 +163,24 @@ synthetic data only and writes screenshots and a `summary.json`.
 | | Main bundle | Bulk File Doctor chunk | Workbook chunk |
 | --- | --- | --- | --- |
 | M1a | 460.28 kB / 118.46 kB gzip | (static) | — |
-| M1b | **450.65 kB / 115.03 kB gzip** | 43.50 kB / 14.87 kB gzip | 7.85 kB / 3.84 kB gzip |
+| M1b | **450.65 kB / 115.03 kB gzip** | 46.09 kB / 15.65 kB gzip | 7.85 kB / 3.84 kB gzip |
 
 The other eleven tools and the marketing pages now load **less** JavaScript than
 before M1b.
 
 ---
 
-## 4. Limitations
+## 4. Seller pain points addressed
+
+`docs/LISTINGAI_SELLER_PAIN_POINTS.md` records eight recurring seller problems
+with their sources and dates, and maps each to what ListingAI can do about it.
+The two highest-ranked pain points — the processing report being the only
+diagnostic, and header or delimiter failures — are what M1b addresses. The rest
+are prioritised into M2, M3 and M6, and the two that need a live Amazon
+connection are deliberately last because they cannot be built or verified without
+an authorised account.
+
+## 5. Limitations
 
 * **No Amazon API integration and no category compliance verification.** No SP-API
   call, no Seller Central authorisation, no publishing, no read-back.
@@ -175,6 +193,10 @@ before M1b.
   implemented; the parent-SKU relationship is identified but not rewritten.
 * The corrected export is CSV of the analysed sheet. The original workbook is
   preserved unchanged and can be downloaded as it was.
+* The Processing Report adapter reads the tab-delimited layout Amazon documents
+  and the "Processing Summary" tab of a category-specific report is not yet read.
+* A seller's own table is read but not yet written back out in Amazon's template
+  shape; that needs the M2 schema engine.
 * `/create` generation is not covered end to end: the dev server has no
   `/api/generate` function.
 * The e2e suite assumes a machine with a free port. An OS-level socket-buffer failure

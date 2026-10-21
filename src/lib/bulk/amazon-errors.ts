@@ -13,6 +13,8 @@
  *    is explicitly synthetic.
  */
 
+import { textProcessingReportAdapter } from './text-processing-report';
+
 export type ErrorOrigin = 'source-file' | 'amazon-reported';
 
 export interface AmazonReportedError {
@@ -422,7 +424,10 @@ export const jsonProcessingReportAdapter: AmazonReportAdapter = {
   },
 };
 
-export const AMAZON_REPORT_ADAPTERS: AmazonReportAdapter[] = [jsonProcessingReportAdapter];
+export const AMAZON_REPORT_ADAPTERS: AmazonReportAdapter[] = [
+  jsonProcessingReportAdapter,
+  textProcessingReportAdapter,
+];
 
 /**
  * Tries each adapter against the document. The first adapter that recognises
