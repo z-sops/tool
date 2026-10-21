@@ -21,8 +21,19 @@ import type { FullConfig } from '@playwright/test';
  *    rather than masking it with a larger timeout.
  */
 
-/** Markers that only the ListingAI application can produce. */
-const LISTINGAI_MARKERS = ['NicheScout', '/src/main.tsx'];
+/**
+ * Markers that positively identify the ListingAI application.
+ *
+ * These are application-specific, not a generic document title:
+ *  - `listingai:app` is a meta tag that only ListingAI emits.
+ *  - `listingai-woad.vercel.app` is ListingAI's canonical production origin.
+ *  - `/src/main.tsx` is ListingAI's Vite entry module.
+ *
+ * The legacy "NicheScout" brand string is deliberately NOT part of the
+ * required set: the brand alone does not identify the application, and other
+ * applications may reuse it.
+ */
+const LISTINGAI_MARKERS = ['listingai:app', 'listingai-woad.vercel.app', '/src/main.tsx'];
 
 /** Applications that must never be validated by this suite. */
 const FOREIGN_MARKERS = ['MRCGP', 'Snap to Fit', 'ZTech', 'ztech'];
