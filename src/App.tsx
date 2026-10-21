@@ -14,6 +14,7 @@ import { useSEO } from './hooks/useSEO';
 import { useEffect } from 'react';
 
 // Tool Pages
+import { BulkFileDoctorPage } from './pages/tools/BulkFileDoctorPage';
 import { ProfitCalculatorPage } from './pages/tools/ProfitCalculatorPage';
 import { ROICalculatorPage } from './pages/tools/ROICalculatorPage';
 import { PricingCalculatorPage } from './pages/tools/PricingCalculatorPage';
@@ -50,6 +51,7 @@ function App() {
               <Route path="/my-research" element={<MyResearchPage />} />
               
               {/* Tool Pages */}
+              <Route path="/tools/amazon-bulk-file-doctor" element={<BulkFileDoctorPage />} />
               <Route path="/tools/amazon-profit-calculator" element={<ProfitCalculatorPage />} />
               <Route path="/tools/amazon-roi-calculator" element={<ROICalculatorPage />} />
               <Route path="/tools/amazon-pricing-calculator" element={<PricingCalculatorPage />} />
