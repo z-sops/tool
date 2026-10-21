@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Browser demonstration for the Bulk File Doctor.
+ * Browser demonstration for the Bulk File Doctor (M1b).
  *
- * Starts the ListingAI dev server on an isolated port, uploads a synthetic CSV
- * and writes screenshots plus the on-screen numbers to an output folder.
- * No other project or running process is touched.
+ * Starts the ListingAI dev server on an isolated port, drives a real browser
+ * with synthetic data only, and writes screenshots plus the on-screen numbers
+ * to an output folder. No other project or running process is touched.
  *
  * Usage: node scripts/demo-file-doctor.mjs [outputDir]
  */
@@ -13,6 +13,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { zipSync, strToU8 } from 'fflate';
 import { findFreePort } from './free-port.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -21,14 +22,42 @@ const outDir = path.resolve(process.argv[2] || path.join(repoRoot, 'demo-output'
 
 // Synthetic sample only: not a real seller catalogue and not real Amazon data.
 const SAMPLE_CSV = [
-  'item-sku,item-name,brand,standard-price,description',
-  'DEMO-SKU-001,  Demo Ceramic Mug  ,DemoBrand,12.50,Sample description for demo purposes only.',
-  'DEMO-SKU-002,Demo Stainless Bottle,DemoBrand,24.00,Another sample row.',
-  'DEMO-SKU-002,Duplicate Demo Bottle,DemoBrand,not-a-price,Duplicate sample row.',
-  ',Demo Missing SKU,DemoBrand,9.99,Row with no SKU.',
+  'seller-sku,item-name,brand-name,standard-price,quantity,product-description',
+  'DEMO-SKU-001,  Demo Ceramic Mug  ,DemoBrand,12.50,25,Sample description for demo purposes only.',
+  'DEMO-SKU-002,Demo Stainless Bottle,DemoBrand,24.00,10,Another sample row.',
+  'DEMO-SKU-002,Duplicate Demo Bottle,DemoBrand,not-a-price,5,Duplicate sample row.',
+  ',Demo Missing SKU,DemoBrand,9.99,3,Row with no SKU.',
 ].join('\r\n') + '\r\n';
 
-const BLOCKED_CSV = 'item-sku,item-name\r\nDEMO-SKU-003,=SUM(A1:A9)\r\n';
+const BLOCKED_CSV = 'seller-sku,item-name\r\nDEMO-SKU-003,=SUM(A1:A9)\r\n';
+
+/** Builds a small workbook with two sheets for the demonstration. */
+function buildXlsx() {
+  const files = {};
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const sheet = (rows) =>
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows
+      .map((row, r) => `<row r="${r + 1}">${row.map((v, c) => `<c r="${String.fromCharCode(65 + c)}${r + 1}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`).join('')}</row>`)
+      .join('')}</sheetData></worksheet>`;
+  files['xl/worksheets/sheet1.xml'] = strToU8(sheet([
+    ['seller-sku', 'item-name', 'standard-price'],
+    ['DEMO-SKU-101', 'Demo Sheet One Item', '15.00'],
+  ]));
+  files['xl/worksheets/sheet2.xml'] = strToU8(sheet([
+    ['seller-sku', 'item-name', 'standard-price'],
+    ['DEMO-SKU-201', 'Demo Sheet Two Item', '25.00'],
+  ]));
+  files['xl/workbook.xml'] = strToU8(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Listings" sheetId="1" r:id="rId1"/><sheet name="Second" sheetId="2" r:id="rId2"/></sheets></workbook>`,
+  );
+  files['xl/_rels/workbook.xml.rels'] = strToU8(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>`,
+  );
+  files['[Content_Types].xml'] = strToU8(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>`,
+  );
+  return Buffer.from(zipSync(files));
+}
 
 const port = await findFreePort(Number(process.env.LISTINGAI_TEST_PORT || 5181));
 const host = '127.0.0.1';
@@ -81,6 +110,7 @@ const run = async (viewport, label) => {
   await page.getByRole('heading', { name: 'Amazon Bulk File Doctor' }).waitFor();
   await shoot(page, `${label}-1-empty.png`);
 
+  // --- CSV flow ---
   await page.setInputFiles('[data-testid="file-doctor-upload"]', {
     name: 'demo-listings.csv',
     mimeType: 'text/csv',
@@ -94,34 +124,62 @@ const run = async (viewport, label) => {
     warnings: await page.getByTestId('stat-warnings').textContent(),
   };
   const groups = await page.getByTestId('file-doctor-groups').innerText();
-  await shoot(page, `${label}-2-results.png`);
+  const template = await page.getByTestId('file-doctor-template').innerText();
+  await shoot(page, `${label}-2-csv-results.png`);
 
-  // Export gate: the reviewed CSV button must stay disabled without approval.
+  // --- Processing report ---
+  await page.getByTestId('file-doctor-amazon-sample').click();
+  await page.getByTestId('file-doctor-amazon-errors').waitFor();
+  const amazonNote = await page.getByTestId('file-doctor-amazon-note').textContent();
+  const amazonGroups = await page.getByTestId('file-doctor-amazon-group').count();
+  await shoot(page, `${label}-3-processing-report.png`);
+
+  // --- Correction approval ---
   const disabledBefore = await page.getByTestId('file-doctor-reviewed').isDisabled();
   await page.getByTestId('file-doctor-approve').check();
   const disabledAfter = await page.getByTestId('file-doctor-reviewed').isDisabled();
-  await shoot(page, `${label}-3-approval.png`);
+  const corrections = await page.getByTestId('file-doctor-corrections').innerText();
+  await shoot(page, `${label}-4-correction-approval.png`);
 
-  // Blocked export: formula risk must block the reviewed CSV.
+  // --- XLSX with two sheets ---
+  await page.setInputFiles('[data-testid="file-doctor-upload"]', {
+    name: 'demo-workbook.xlsx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: buildXlsx(),
+  });
+  await page.getByTestId('file-doctor-sheet').waitFor();
+  const sheetOptions = await page.getByTestId('file-doctor-sheet').innerText();
+  const xlsxRows = await page.getByTestId('stat-csv-rows').textContent();
+  await page.getByTestId('file-doctor-sheet').selectOption({ index: 1 });
+  await page.getByTestId('stat-csv-rows').waitFor();
+  const xlsxRowsSecondSheet = await page.getByTestId('stat-csv-rows').textContent();
+  await shoot(page, `${label}-5-xlsx-sheets.png`);
+
+  // --- Blocked export ---
   await page.setInputFiles('[data-testid="file-doctor-upload"]', {
     name: 'demo-formula.csv',
     mimeType: 'text/csv',
     buffer: Buffer.from(BLOCKED_CSV, 'utf8'),
   });
   await page.getByTestId('file-doctor-blocked').waitFor();
-  await shoot(page, `${label}-4-blocked.png`);
+  await shoot(page, `${label}-6-blocked.png`);
 
-  // Unsupported file type.
-  await page.setInputFiles('[data-testid="file-doctor-upload"]', {
-    name: 'demo-workbook.xlsx',
-    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    buffer: Buffer.from('PKdemo'),
+  summary.steps.push({
+    label,
+    viewport,
+    stats,
+    groups,
+    template,
+    amazonNote,
+    amazonGroups,
+    correctionsProposed: corrections.includes('Leading and trailing whitespace'),
+    reviewedDisabledWithoutApproval: disabledBefore,
+    reviewedDisabledAfterApproval: disabledAfter,
+    xlsxSheetOptions: sheetOptions,
+    xlsxRowsFirstSheet: xlsxRows,
+    xlsxRowsSecondSheet,
+    externalRequests: external,
   });
-  await page.getByTestId('file-doctor-error').waitFor();
-  const xlsxError = await page.getByTestId('file-doctor-error').textContent();
-  await shoot(page, `${label}-5-xlsx-error.png`);
-
-  summary.steps.push({ label, viewport, stats, groups, reviewedDisabledWithoutApproval: disabledBefore, reviewedDisabledAfterApproval: disabledAfter, xlsxError, externalRequests: external });
 
   await context.close();
 };

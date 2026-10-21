@@ -1,0 +1,28 @@
+{
+  "_WARNING": "SYNTHETIC FIXTURE - NOT AN AMAZON REPORT. Every value below was invented for testing the adapter interface. The error codes are examples of the shape a code can take; they are NOT verified Amazon error codes and must not be presented as such.",
+  "_fixtureType": "synthetic",
+  "generatedFor": "ListingAI M1b error-intelligence adapter test",
+  "errors": [
+    {
+      "errorCode": "SYNTHETIC-0001",
+      "message": "Synthetic example: the value is not valid for this attribute.",
+      "sku": "DEMO-SKU-001",
+      "column": "item_type",
+      "severity": "error"
+    },
+    {
+      "errorCode": "SYNTHETIC-0001",
+      "message": "Synthetic example: the value is not valid for this attribute.",
+      "sku": "DEMO-SKU-002",
+      "column": "item_type",
+      "severity": "error"
+    },
+    {
+      "errorCode": "SYNTHETIC-0002",
+      "message": "Synthetic example: a required attribute is missing from this row.",
+      "sku": "DEMO-SKU-003",
+      "column": "brand_name",
+      "severity": "warning"
+    }
+  ]
+}

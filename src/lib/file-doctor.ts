@@ -81,6 +81,7 @@ export function inspectCsv(csv: Csv): Report {
   const sku = aliases(csv.headers, ['sku','seller-sku','item-sku']);
   const title = aliases(csv.headers, ['title','item-name','product-name','product-title']);
   const price = aliases(csv.headers, ['price','standard-price','your-price']);
+  const quantity = aliases(csv.headers, ['quantity','qty','inventory-quantity','in-stock-quantity','available-quantity','stock','stock-quantity']);
   const warnings: string[] = [
     'Offline preliminary checks only: no official Amazon product-type schema, Seller Central status, variation or API processing report verification.'
   ];
@@ -113,6 +114,10 @@ export function inspectCsv(csv: Csv): Report {
       const v = values[price].trim();
       if (!/^\d+(\.\d{1,2})?$/.test(v) || Number(v) <= 0) add(row,csv.headers[price],'PRICE_FORMAT','warning','formatting','Check price format and currency.');
     }
+    if (quantity >= 0 && (values[quantity] || '').trim()) {
+      const v = values[quantity].trim();
+      if (!/^\d+$/.test(v)) add(row,csv.headers[quantity],'QUANTITY_FORMAT','warning','formatting','Available quantity should be a whole number.');
+    }
     values.forEach((v,col) => {
       const field = csv.headers[col] || 'extra-column-' + (col+1);
       if (v.trim() !== v) add(row,field,'EDGE_WHITESPACE','warning','formatting','Leading/trailing spaces detected.');
@@ -124,11 +129,28 @@ export function inspectCsv(csv: Csv): Report {
   return {
     csv,issues,warnings,
     groups: Array.from(counts,([cause,count])=>({cause,count})).sort((a,b)=>b.count-a.count),
-    blocked: issues.some(x => x.code === 'ROW_WIDTH' || x.code === 'FORMULA_RISK'),
+    blocked: issues.some(x => x.code === 'ROW_WIDTH' || x.code === 'FORMULA_RISK' || x.code === 'FORMULA_CELL' || x.code === 'MALICIOUS_CELL'),
   };
 }
 export function reviewedCsv(report: Report): string {
   if (report.blocked) throw new Error('Export blocked: fix malformed rows or formula-risk content first.');
   const trimCols = report.csv.headers.map((h,i) => /^(title|itemname|productname|producttitle|description|productdescription|bulletpoint[1-9])$/.test(norm(h)) ? i : -1);
   return serializeCsv({headers:report.csv.headers.slice(),rows:report.csv.rows.map(row=>row.map((value,i)=>trimCols.includes(i)?value.trim():value))});
+}
+
+/**
+ * Returns a new report with additional issues merged in and the root-cause
+ * groups and blocked state recomputed. The input report is not modified.
+ */
+export function withIssues(report: Report, extra: Issue[]): Report {
+  if (!extra.length) return report;
+  const issues = report.issues.concat(extra);
+  const counts = new Map<Cause,number>();
+  issues.forEach(x => counts.set(x.cause,(counts.get(x.cause)||0)+1));
+  return {
+    ...report,
+    issues,
+    groups: Array.from(counts,([cause,count])=>({cause,count})).sort((a,b)=>b.count-a.count),
+    blocked: report.blocked || issues.some(x => x.code === 'ROW_WIDTH' || x.code === 'FORMULA_RISK' || x.code === 'FORMULA_CELL' || x.code === 'MALICIOUS_CELL'),
+  };
 }
