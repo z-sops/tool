@@ -1,12 +1,11 @@
 import { test, expect } from '@playwright/test';
 
-const BASE_URL = 'http://localhost:3000';
 const PROD_URL = 'https://listingai-woad.vercel.app';
 
 test.describe('SEO Infrastructure', () => {
   test.describe('robots.txt', () => {
     test('robots.txt is accessible', async ({ page }) => {
-      const response = await page.goto(`${BASE_URL}/robots.txt`);
+      const response = await page.goto(`/robots.txt`);
       expect(response?.status()).toBe(200);
       const content = await response?.text();
       expect(content).toContain('User-agent: *');
@@ -15,7 +14,7 @@ test.describe('SEO Infrastructure', () => {
     });
 
     test('robots.txt disallows private pages', async ({ page }) => {
-      const response = await page.goto(`${BASE_URL}/robots.txt`);
+      const response = await page.goto(`/robots.txt`);
       const content = await response?.text();
       expect(content).toContain('Disallow: /my-research');
       expect(content).toContain('Disallow: /create');
@@ -24,7 +23,7 @@ test.describe('SEO Infrastructure', () => {
 
   test.describe('sitemap.xml', () => {
     test('sitemap.xml is accessible', async ({ page }) => {
-      const response = await page.goto(`${BASE_URL}/sitemap.xml`);
+      const response = await page.goto(`/sitemap.xml`);
       expect(response?.status()).toBe(200);
       const content = await response?.text();
       expect(content).toContain('<?xml');
@@ -32,7 +31,7 @@ test.describe('SEO Infrastructure', () => {
     });
 
     test('sitemap contains all public indexable routes', async ({ page }) => {
-      const response = await page.goto(`${BASE_URL}/sitemap.xml`);
+      const response = await page.goto(`/sitemap.xml`);
       const content = await response?.text();
 
       const expectedRoutes = [
@@ -51,6 +50,7 @@ test.describe('SEO Infrastructure', () => {
         '/tools/amazon-bullet-checker',
         '/tools/product-research-checklist',
         '/tools/niche-analysis',
+        '/tools/amazon-bulk-file-doctor',
         '/about',
         '/privacy',
         '/terms',
@@ -62,14 +62,14 @@ test.describe('SEO Infrastructure', () => {
     });
 
     test('sitemap does not contain private routes', async ({ page }) => {
-      const response = await page.goto(`${BASE_URL}/sitemap.xml`);
+      const response = await page.goto(`/sitemap.xml`);
       const content = await response?.text();
       expect(content).not.toContain('/my-research');
       expect(content).not.toContain('/create');
     });
 
     test('sitemap uses absolute production URLs', async ({ page }) => {
-      const response = await page.goto(`${BASE_URL}/sitemap.xml`);
+      const response = await page.goto(`/sitemap.xml`);
       const content = await response?.text();
       expect(content).toContain(PROD_URL);
     });
@@ -140,6 +140,7 @@ test.describe('SEO Infrastructure', () => {
       { path: '/tools/amazon-bullet-checker', titlePart: 'Bullet', canonical: '/tools/amazon-bullet-checker' },
       { path: '/tools/product-research-checklist', titlePart: 'Checklist', canonical: '/tools/product-research-checklist' },
       { path: '/tools/niche-analysis', titlePart: 'Niche Analysis', canonical: '/tools/niche-analysis' },
+      { path: '/tools/amazon-bulk-file-doctor', titlePart: 'Bulk File Doctor', canonical: '/tools/amazon-bulk-file-doctor' },
     ];
 
     for (const tool of toolPages) {
@@ -240,6 +241,7 @@ test.describe('SEO Infrastructure', () => {
       '/tools/amazon-bullet-checker',
       '/tools/product-research-checklist',
       '/tools/niche-analysis',
+      '/tools/amazon-bulk-file-doctor',
       '/about',
       '/privacy',
       '/terms',
@@ -247,7 +249,7 @@ test.describe('SEO Infrastructure', () => {
 
     for (const route of routes) {
       test(`direct navigation to ${route} loads successfully`, async ({ page }) => {
-        const response = await page.goto(`${BASE_URL}${route}`);
+        const response = await page.goto(`${route}`);
         expect(response?.status()).toBe(200);
         await expect(page.locator('text=NicheScout').first()).toBeVisible();
       });

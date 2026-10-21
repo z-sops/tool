@@ -24,13 +24,14 @@ test.describe('HomePage', () => {
     await expect(page.locator('nav >> text=My Research')).toBeVisible();
   });
 
-  test('tools section shows all 11 tools', async ({ page }) => {
+  test('tools section shows all tools', async ({ page }) => {
     await page.goto('/');
     const toolNames = [
       'Profit Calculator', 'ROI Calculator', 'Pricing Calculator',
       'IP Risk Check', 'Restriction Check', 'Sourcing Risk Check',
       'Listing Analyzer', 'Title Checker', 'Bullet Checker',
       'Niche Analysis', 'Research Checklist',
+      'Amazon Bulk File Doctor',
     ];
     for (const name of toolNames) {
       await expect(page.locator(`text=${name}`).first()).toBeVisible();

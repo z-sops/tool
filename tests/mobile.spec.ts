@@ -51,6 +51,7 @@ test.describe('Mobile Pages', () => {
       '/tools/amazon-bullet-checker',
       '/tools/product-research-checklist',
       '/tools/niche-analysis',
+      '/tools/amazon-bulk-file-doctor',
     ];
 
     for (const url of toolPages) {

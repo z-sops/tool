@@ -8,6 +8,32 @@ export const MAX_ROWS = 5000;
 const norm = (s: string) => s.trim().toLowerCase().replace(/[\s_-]/g,'');
 const aliases = (a: string[], choices: string[]) => a.findIndex(x => choices.map(norm).includes(norm(x)));
 
+// A plain signed number: -5, +3, -5.99, -1,5, -1,234.56, +15551234567.
+const PLAIN_SIGNED_NUMBER = /^[+-]?(?:\d{1,3}(?:,\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)$/;
+// A phone / E.164 style value: +1-555-0100, +44 20 7946 0000, +1 (555) 010 0.
+const PHONE_LIKE = /^[+-]\d[\d\s().\-/]{2,}$/;
+
+/**
+ * Spreadsheet formula-injection heuristic.
+ *
+ * A cell is treated as a formula risk when it can be evaluated as an expression
+ * by a spreadsheet application. Sign-prefixed *values* (plain signed numbers,
+ * phone/E.164 numbers) are not expressions and must not block a legitimate
+ * export, while sign-prefixed *expressions* (`-1+1`, `-2+3+cmd|'/C calc'!A0`)
+ * must be detected.
+ */
+export function isFormulaRisk(value: string): boolean {
+  const v = value.replace(/^\s+/, '');
+  if (!v) return false;
+  const first = v[0];
+  if (first === '=' || first === '@') return true;
+  if (first !== '+' && first !== '-') return false;
+  if (/^[+-][\s]/.test(v)) return false;           // prose such as "- New Arrival"
+  if (PLAIN_SIGNED_NUMBER.test(v)) return false;   // -5, +3, +15551234567
+  if (PHONE_LIKE.test(v)) return false;             // +1-555-0100
+  return true;
+}
+
 export function parseCsv(input: string): Csv {
   if (!input.trim()) throw new Error('CSV is empty.');
   if (new TextEncoder().encode(input).length > MAX_BYTES) throw new Error('CSV exceeds 5 MB.');
@@ -62,6 +88,7 @@ export function inspectCsv(csv: Csv): Report {
   if (title < 0) warnings.push('Title column not recognized; title checks skipped.');
   if (price < 0) warnings.push('Price column not recognized; price checks skipped.');
   if (new Set(csv.headers.map(norm)).size !== csv.headers.length) warnings.push('Duplicate header names. Verify CSV mapping manually.');
+  if (csv.headers.some(h => !h.trim())) warnings.push('One or more header cells are empty. Column mapping is unreliable; verify manually.');
   const issues: Issue[] = [];
   const seen = new Map<string,number>();
   const add = (row: number, field: string, code: string, severity: Issue['severity'], cause: Cause, detail: string) => {
@@ -89,7 +116,7 @@ export function inspectCsv(csv: Csv): Report {
     values.forEach((v,col) => {
       const field = csv.headers[col] || 'extra-column-' + (col+1);
       if (v.trim() !== v) add(row,field,'EDGE_WHITESPACE','warning','formatting','Leading/trailing spaces detected.');
-      if (/^\s*[=+@]/.test(v) || /^\s*-[^\d.\s]/.test(v)) add(row,field,'FORMULA_RISK','error','manual-review','Possible spreadsheet formula; sanitize input manually.');
+      if (isFormulaRisk(v)) add(row,field,'FORMULA_RISK','error','manual-review','Possible spreadsheet formula; sanitize input manually.');
     });
   });
   const counts = new Map<Cause,number>();

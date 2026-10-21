@@ -115,6 +115,11 @@ const SEO_MAP: Record<string, SEOData> = {
     description: 'Deep dive into niche viability with demand scoring, competition analysis, profit potential, trend evaluation, and entry barrier assessment.',
     ogType: 'website',
   },
+  '/tools/amazon-bulk-file-doctor': {
+    title: 'Amazon Bulk File Doctor — Offline CSV Listing Preflight | NicheScout',
+    description: 'Review an Amazon bulk listing CSV in your browser: formatting, missing values, duplicate SKUs and spreadsheet-formula risk, grouped by root cause. No upload, no compliance verdict.',
+    ogType: 'website',
+  },
   '/privacy': {
     title: 'Privacy Policy | NicheScout',
     description: 'NicheScout privacy policy. All research data is stored locally in your browser — we do not collect personal information.',
