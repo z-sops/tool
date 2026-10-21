@@ -1,7 +1,8 @@
 # ListingAI — M0 audit and M1a delivery
 
 ## Scope and safety
-Branch: feat/listingai-m1-file-doctor. Initial main SHA: 2ed6b7b4e6bc7f399efd26937d04c60a22698702.
+Branch: review/m1a-only (M1a-only review branch, derived from feat/listingai-m1-file-doctor).
+Initial main SHA: 2ed6b7b4e6bc7f399efd26937d04c60a22698702.
 No main changes, no deployment, no Amazon account credentials, no Gitee source import.
 
 ## M0 verified baseline
