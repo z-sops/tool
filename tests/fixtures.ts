@@ -25,14 +25,37 @@ export const test = base.extend<{ page: Page }>({
       const response = await originalGoto(url, options);
       const contentType = response?.headers()['content-type'] ?? '';
       if (contentType.includes('text/html')) {
-        await page.waitForFunction(
-          () => {
-            const root = document.querySelector('#root');
-            return !!root && root.childElementCount > 0;
-          },
-          undefined,
-          { timeout: 30_000 },
-        );
+        try {
+          await page.waitForFunction(
+            () => {
+              const root = document.querySelector('#root');
+              return !!root && root.childElementCount > 0;
+            },
+            undefined,
+            // Poll on a timer rather than requestAnimationFrame: a background
+            // tab can have its animation frames throttled, which would starve
+            // a rAF-based wait.
+            { timeout: 30_000, polling: 250 },
+          );
+        } catch (error) {
+          const state = await page
+            .evaluate(() => {
+              const root = document.querySelector('#root');
+              return {
+                readyState: document.readyState,
+                url: location.href,
+                hasRoot: !!root,
+                rootChildren: root ? root.childElementCount : -1,
+                rootHtmlLength: root ? root.innerHTML.length : -1,
+              };
+            })
+            .catch(() => null);
+          throw new Error(
+            `The application did not render after navigating to ${url}. State: ${JSON.stringify(state)}. Cause: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
       }
       return response;
     }) as Page['goto'];
