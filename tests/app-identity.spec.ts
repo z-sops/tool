@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 // Guard against the e2e suite silently validating a foreign application that
 // happens to occupy the same port (e.g. an unrelated dev server already running).

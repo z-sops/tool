@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 const CSV_OK = 'sku,item-name,standard-price\nA-1,Widget,10.00\nA-2,Gadget,20.00\n';
 
