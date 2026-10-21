@@ -91,8 +91,8 @@ test.describe('SEO Infrastructure', () => {
 
     test('homepage has canonical URL', async ({ page }) => {
       await page.goto('/');
-      const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
-      expect(canonical).toBe(`${PROD_URL}/`);
+      // Poll: the app rewrites the canonical once it mounts.
+      await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', `${PROD_URL}/`);
     });
 
     test('homepage has Open Graph tags', async ({ page }) => {
@@ -160,8 +160,8 @@ test.describe('SEO Infrastructure', () => {
 
       test(`${tool.titlePart} has canonical URL`, async ({ page }) => {
         await page.goto(tool.path);
-        const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
-        expect(canonical).toBe(`${PROD_URL}${tool.canonical}`);
+        // Poll: the app rewrites the canonical once it mounts.
+        await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', `${PROD_URL}${tool.canonical}`);
       });
 
       test(`${tool.titlePart} has index directive`, async ({ page }) => {
@@ -189,10 +189,10 @@ test.describe('SEO Infrastructure', () => {
   test.describe('Canonical URL Consistency', () => {
     test('canonical URLs do not contain query parameters', async ({ page }) => {
       await page.goto('/tools/amazon-profit-calculator?product=Test&price=24.99');
-      const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
-      expect(canonical).not.toContain('?');
-      expect(canonical).not.toContain('product');
-      expect(canonical).not.toContain('price');
+      await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+        'href',
+        `${PROD_URL}/tools/amazon-profit-calculator`,
+      );
     });
 
     test('each page has a unique canonical', async ({ page }) => {
@@ -201,8 +201,9 @@ test.describe('SEO Infrastructure', () => {
 
       for (const path of pages) {
         await page.goto(path);
-        const canonical = await page.locator('link[rel="canonical"]').getAttribute('href');
-        canonicals.push(canonical!);
+        const canonical = page.locator('link[rel="canonical"]');
+        await expect(canonical).toHaveAttribute('href', `${PROD_URL}${path === '/' ? '/' : path}`);
+        canonicals.push((await canonical.getAttribute('href'))!);
       }
 
       const unique = new Set(canonicals);
