@@ -19,9 +19,10 @@ import { Inflate } from 'fflate';
  * The archive is read through its own central directory rather than by handing
  * the whole file to a decompressor. That is what makes the resource limits
  * trustworthy: the size of every entry is read from the archive metadata and
- * checked *before* the entry is inflated, and the inflated result is checked
- * again afterwards, so an archive that lies about its sizes cannot expand
- * without bound.
+ * checked *before* the entry is inflated, the inflated result is checked
+ * against the metadata afterwards, and the inflation itself is stopped as soon
+ * as the ceiling is reached, so a compression bomb cannot consume unbounded
+ * CPU or memory.
  */
 
 export const MAX_XLSX_BYTES = 10 * 1024 * 1024;
@@ -34,6 +35,8 @@ export const MAX_SHEET_COLUMNS = 200;
 export const MAX_CELL_CHARS = 32_768;
 /** A single part larger than this is refused. */
 export const MAX_PART_BYTES = 16 * 1024 * 1024;
+/** The highest Excel row number that is accepted (1 048 576). */
+const MAX_ROW_NUMBER = 1_048_576;
 
 export type XlsxErrorCode =
   | 'NOT_A_ZIP'
@@ -49,7 +52,8 @@ export type XlsxErrorCode =
   | 'COLUMN_LIMIT'
   | 'INVALID_REFERENCE'
   | 'DUPLICATE_CELL'
-  | 'INCONSISTENT_WORKBOOK';
+  | 'INCONSISTENT_WORKBOOK'
+  | 'UNSUPPORTED_ARCHIVE';
 
 export class XlsxError extends Error {
   readonly code: XlsxErrorCode;
@@ -95,12 +99,27 @@ export interface XlsxCell {
   hasCachedValue: boolean;
   /** Content risk of the cell value, or null when the value is clean. */
   risk?: CellRisk;
+  /** The physical Excel row this cell sits on. */
+  rowNumber: number;
+  /** The zero-based physical Excel column this cell sits in. */
+  columnIndex: number;
 }
 
 export interface XlsxSheet {
   name: string;
   rows: XlsxCell[][];
-  /** Number of rows present in the file (may exceed `rows.length` when truncated). */
+  /**
+   * The physical Excel row number of each parsed row, in the order the rows
+   * appear in `rows`. Worksheet XML may omit blank rows, so this is not
+   * necessarily 1, 2, 3.
+   */
+  rowNumbers: number[];
+  /**
+   * The highest physical row number present in the sheet, which is the number
+   * of rows in the sheet including the ones the file omitted.
+   */
+  physicalRowCount: number;
+  /** Number of rows the file actually carried. */
   sourceRowCount: number;
   truncated: boolean;
   /** How many rows were dropped because the sheet exceeded the row limit. */
@@ -112,12 +131,56 @@ export interface XlsxWorkbook {
 }
 
 /* ------------------------------------------------------------------ */
+/* Cell references                                                      */
+/* ------------------------------------------------------------------ */
+
+export interface CellReference {
+  /** Zero-based column index. */
+  columnIndex: number;
+  /** One-based row number. */
+  rowNumber: number;
+}
+
+/**
+ * A complete A1-style reference: one to three upper case letters for the
+ * column and a positive row number. Anything else is refused, so "A0", "A1junk",
+ * "a1" and "1A" are not accepted as references.
+ */
+const A1_REFERENCE = /^([A-Z]{1,3})([1-9][0-9]{0,6})$/;
+
+/** Parses a complete A1-style reference. Returns null when it is not valid. */
+export function parseCellReference(ref: string): CellReference | null {
+  if (!ref) return null;
+  const match = A1_REFERENCE.exec(ref);
+  if (!match) return null;
+  const letters = match[1];
+  const rowNumber = Number.parseInt(match[2], 10);
+  if (!Number.isSafeInteger(rowNumber) || rowNumber < 1 || rowNumber > MAX_ROW_NUMBER) return null;
+  let columnIndex = 0;
+  for (let i = 0; i < letters.length; i++) {
+    columnIndex = columnIndex * 26 + (letters.charCodeAt(i) - 64);
+  }
+  columnIndex -= 1;
+  return { columnIndex, rowNumber };
+}
+
+/**
+ * "BC12" -> 54 (zero-based column index), or -1 when the reference is not a
+ * valid A1-style reference.
+ */
+export function columnRefToIndex(ref: string): number {
+  const parsed = parseCellReference(ref);
+  return parsed ? parsed.columnIndex : -1;
+}
+
+/* ------------------------------------------------------------------ */
 /* ZIP reading                                                          */
 /* ------------------------------------------------------------------ */
 
 const EOCD_SIGNATURE = 0x06054b50;
 const CENTRAL_SIGNATURE = 0x02014b50;
 const LOCAL_SIGNATURE = 0x04034b50;
+const ZIP64_MARKER = 0xffffffff;
 
 interface ZipEntry {
   name: string;
@@ -125,6 +188,8 @@ interface ZipEntry {
   compressedSize: number;
   uncompressedSize: number;
   localHeaderOffset: number;
+  /** General purpose bit flag. */
+  flags: number;
 }
 
 const view = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -138,7 +203,10 @@ function findEndOfCentralDirectory(bytes: Uint8Array): number {
   throw new XlsxError('ZIP_CORRUPT', 'This file is not a readable archive: the central directory was not found.');
 }
 
-/** Reads every entry of the central directory. */
+/**
+ * Reads every entry of the central directory, validating each entry's
+ * boundaries against both the directory and the file.
+ */
 function readCentralDirectory(bytes: Uint8Array): ZipEntry[] {
   const eocd = findEndOfCentralDirectory(bytes);
   const dv = view(bytes);
@@ -152,16 +220,19 @@ function readCentralDirectory(bytes: Uint8Array): ZipEntry[] {
   if (offset + size > bytes.length) {
     throw new XlsxError('ZIP_CORRUPT', 'This file is not a readable archive: the central directory is out of range.');
   }
+  const directoryEnd = offset + size;
 
   const entries: ZipEntry[] = [];
   let cursor = offset;
   for (let i = 0; i < total; i++) {
-    if (cursor + 46 > bytes.length) {
+    // The fixed part of the entry must fit inside the directory and the file.
+    if (cursor + 46 > directoryEnd || cursor + 46 > bytes.length) {
       throw new XlsxError('ZIP_CORRUPT', 'This file is not a readable archive: a central directory entry is truncated.');
     }
     if (dv.getUint32(cursor, true) !== CENTRAL_SIGNATURE) {
       throw new XlsxError('ZIP_CORRUPT', 'This file is not a readable archive: a central directory entry has a bad signature.');
     }
+    const flags = dv.getUint16(cursor + 8, true);
     const compressionMethod = dv.getUint16(cursor + 10, true);
     const compressedSize = dv.getUint32(cursor + 20, true);
     const uncompressedSize = dv.getUint32(cursor + 24, true);
@@ -169,12 +240,19 @@ function readCentralDirectory(bytes: Uint8Array): ZipEntry[] {
     const extraLength = dv.getUint16(cursor + 30, true);
     const commentLength = dv.getUint16(cursor + 32, true);
     const localHeaderOffset = dv.getUint32(cursor + 42, true);
-    if (cursor + 46 + nameLength > bytes.length) {
-      throw new XlsxError('ZIP_CORRUPT', 'This file is not a readable archive: a file name is truncated.');
+
+    // The name, extra field and comment must fit inside the directory entry.
+    const entryEnd = cursor + 46 + nameLength + extraLength + commentLength;
+    if (entryEnd > directoryEnd || entryEnd > bytes.length) {
+      throw new XlsxError('ZIP_CORRUPT', 'This file is not a readable archive: a central directory entry overruns the directory.');
     }
+    if (nameLength === 0) {
+      throw new XlsxError('ZIP_CORRUPT', 'This file is not a readable archive: an entry has no name.');
+    }
+
     const name = new TextDecoder('utf-8').decode(bytes.subarray(cursor + 46, cursor + 46 + nameLength));
-    entries.push({ name, compressionMethod, compressedSize, uncompressedSize, localHeaderOffset });
-    cursor += 46 + nameLength + extraLength + commentLength;
+    entries.push({ name, flags, compressionMethod, compressedSize, uncompressedSize, localHeaderOffset });
+    cursor = entryEnd;
   }
   return entries;
 }
@@ -198,10 +276,31 @@ function isAllowedPart(name: string): boolean {
   return /^xl\/worksheets\/sheet\d+\.xml$/.test(name);
 }
 
+/** The archive features this reader does not support. */
+function assertSupportedFeatures(entry: ZipEntry): void {
+  if (entry.flags & 0x1) {
+    throw new XlsxError('UNSUPPORTED_ARCHIVE', 'This workbook is encrypted, which is not supported.');
+  }
+  if (entry.flags & 0x40) {
+    throw new XlsxError('UNSUPPORTED_ARCHIVE', 'This workbook uses strong encryption, which is not supported.');
+  }
+  if (entry.compressionMethod !== 0 && entry.compressionMethod !== 8) {
+    throw new XlsxError(
+      'UNSUPPORTED_ARCHIVE',
+      'The part "' + entry.name + '" uses an unsupported compression method.',
+    );
+  }
+  if (entry.uncompressedSize === ZIP64_MARKER || entry.compressedSize === ZIP64_MARKER) {
+    throw new XlsxError('UNSUPPORTED_ARCHIVE', 'This workbook uses a ZIP64 archive, which is not supported.');
+  }
+}
+
 /**
- * Inflates one entry with a hard cap on the produced bytes. The cap is
- * enforced while the data is produced, so an entry that expands beyond the
- * limit never allocates the memory in the first place.
+ * Inflates one entry with a hard cap on the produced bytes.
+ *
+ * The ceiling is enforced *during* the inflation: the compressed input is fed
+ * in small blocks and the inflation is abandoned as soon as the cap is passed,
+ * so a high-expansion payload cannot consume unbounded CPU or memory.
  */
 function inflateBounded(data: Uint8Array, cap: number, partName: string): Uint8Array {
   const chunks: Uint8Array[] = [];
@@ -215,13 +314,20 @@ function inflateBounded(data: Uint8Array, cap: number, partName: string): Uint8A
     }
     chunks.push(chunk);
   });
-  inflate.push(data, true);
+
+  const BLOCK = 64 * 1024;
+  for (let offset = 0; offset < data.length && !exceeded; offset += BLOCK) {
+    const end = Math.min(offset + BLOCK, data.length);
+    inflate.push(data.subarray(offset, end), end === data.length);
+  }
+
   if (exceeded) {
     throw new XlsxError(
       'UNCOMPRESSED_LIMIT',
       `The part "${partName}" expands beyond its permitted size and was not read.`,
     );
   }
+
   const out = new Uint8Array(total);
   let at = 0;
   for (const chunk of chunks) {
@@ -241,13 +347,16 @@ function extractParts(bytes: Uint8Array): Map<string, Uint8Array> {
   const dv = view(bytes);
 
   let declaredTotal = 0;
+  const seenNames = new Set<string>();
   for (const entry of entries) {
     if (!isSafePartName(entry.name)) {
       throw new XlsxError('ZIP_CORRUPT', 'Workbook contains an unsafe archive path.');
     }
-    if (entry.uncompressedSize === 0xffffffff || entry.compressedSize === 0xffffffff) {
-      throw new XlsxError('ZIP_CORRUPT', 'This workbook uses a ZIP64 archive, which is not supported.');
+    assertSupportedFeatures(entry);
+    if (seenNames.has(entry.name)) {
+      throw new XlsxError('ZIP_CORRUPT', 'The workbook contains the part "' + entry.name + '" more than once.');
     }
+    seenNames.add(entry.name);
     // Only the parts that are actually read count towards the limit. A part the
     // tool never opens cannot exhaust memory.
     if (isAllowedPart(entry.name)) declaredTotal += entry.uncompressedSize;
@@ -271,29 +380,42 @@ function extractParts(bytes: Uint8Array): Map<string, Uint8Array> {
       );
     }
     const header = entry.localHeaderOffset;
-    if (header + 30 > bytes.length || dv.getUint32(header, true) !== LOCAL_SIGNATURE) {
+    // The local header must fit inside the file before anything is read from it.
+    if (header + 30 > bytes.length) {
+      throw new XlsxError('ZIP_CORRUPT', `The part "${entry.name}" has an unreadable local header.`);
+    }
+    if (dv.getUint32(header, true) !== LOCAL_SIGNATURE) {
       throw new XlsxError('ZIP_CORRUPT', `The part "${entry.name}" has an unreadable local header.`);
     }
     const nameLength = dv.getUint16(header + 26, true);
     const extraLength = dv.getUint16(header + 28, true);
+    if (header + 30 + nameLength + extraLength > bytes.length) {
+      throw new XlsxError('ZIP_CORRUPT', `The part "${entry.name}" has a local header that overruns the file.`);
+    }
     const localName = new TextDecoder('utf-8').decode(bytes.subarray(header + 30, header + 30 + nameLength));
     if (localName !== entry.name) {
       throw new XlsxError('ZIP_CORRUPT', `The part "${entry.name}" has inconsistent archive metadata.`);
     }
     const dataStart = header + 30 + nameLength + extraLength;
     const dataEnd = dataStart + entry.compressedSize;
-    if (dataEnd > bytes.length) {
+    if (dataEnd > bytes.length || dataEnd < dataStart) {
       throw new XlsxError('ZIP_CORRUPT', `The part "${entry.name}" is truncated.`);
-    }
-    if (entry.compressionMethod !== 0 && entry.compressionMethod !== 8) {
-      throw new XlsxError('ZIP_CORRUPT', `The part "${entry.name}" uses an unsupported compression method.`);
     }
 
     const raw = bytes.subarray(dataStart, dataEnd);
     const inflated = entry.compressionMethod === 0 ? raw : inflateBounded(raw, MAX_PART_BYTES, entry.name);
-    if (inflated.length > entry.uncompressedSize) {
-      throw new XlsxError('ZIP_CORRUPT', `The part "${entry.name}" does not match the size declared in the archive.`);
+
+    // The inflated size must match the size the archive declared, in both
+    // directions. An oversized result means the archive lied upwards; an
+    // undersized result means the integrity of the part cannot be established.
+    if (inflated.length !== entry.uncompressedSize) {
+      throw new XlsxError(
+        'ZIP_CORRUPT',
+        `The part "${entry.name}" does not match the size declared in the archive ` +
+          `(${inflated.length} bytes read, ${entry.uncompressedSize} declared).`,
+      );
     }
+
     actualTotal += inflated.length;
     if (actualTotal > MAX_XLSX_UNCOMPRESSED_BYTES) {
       throw new XlsxError(
@@ -339,27 +461,6 @@ function directText(element: Element): string {
   let out = '';
   for (let i = 0; i < own.length; i++) out += own[i].textContent ?? '';
   return out;
-}
-
-/**
- * "BC12" -> 54 (zero-based column index).
- *
- * Returns -1 for a reference that is not a column reference at all. A negative
- * result must be rejected by the caller rather than used as an index.
- */
-export function columnRefToIndex(ref: string): number {
-  if (!ref) return -1;
-  let index = 0;
-  let letters = 0;
-  for (let i = 0; i < ref.length; i++) {
-    const code = ref.charCodeAt(i);
-    if (code < 65 || code > 90) break;
-    index = index * 26 + (code - 64);
-    letters++;
-    if (letters > 3) return -1; // beyond any column a real workbook uses
-  }
-  if (letters === 0) return -1;
-  return index - 1;
 }
 
 /* ------------------------------------------------------------------ */
@@ -428,43 +529,95 @@ function resolveSheetPath(target: string): string | null {
   return isSafePartName(path) ? path : null;
 }
 
+interface ParsedRow {
+  rowNumber: number;
+  cells: XlsxCell[];
+}
+
+/**
+ * Parses one worksheet.
+ *
+ * The physical Excel row number comes from the `r` attribute of the row, not
+ * from the position of the row in the file: worksheet XML may omit blank rows,
+ * so the first row in a file can be row 1 and the next row 5.
+ */
 function parseSheet(part: Uint8Array, sharedStrings: string[], sheetName: string): XlsxSheet {
   const doc = parseXml(decode(part), sheetName);
   const sheetData = doc.getElementsByTagName('sheetData');
-  const rows: XlsxCell[][] = [];
+  const rowElements = sheetData.length ? sheetData[0].getElementsByTagName('row') : doc.getElementsByTagName('row');
+
+  const parsed: ParsedRow[] = [];
+  const usedCoordinates = new Set<string>();
   let sourceRowCount = 0;
   let truncated = false;
   let truncatedRows = 0;
+  let previousRowNumber = 0;
 
-  const rowElements = sheetData.length ? sheetData[0].getElementsByTagName('row') : doc.getElementsByTagName('row');
   for (let r = 0; r < rowElements.length; r++) {
     const rowEl = rowElements[r];
     sourceRowCount += 1;
-    if (rows.length >= MAX_SHEET_ROWS) {
+
+    // The row coordinate, when the file states one.
+    const rowAttribute = rowEl.getAttribute('r');
+    let rowNumber: number;
+    if (rowAttribute === null) {
+      // No coordinate: continue from the previous row.
+      rowNumber = previousRowNumber + 1;
+    } else {
+      if (!/^[1-9][0-9]{0,6}$/.test(rowAttribute)) {
+        throw new XlsxError(
+          'INVALID_REFERENCE',
+          `Sheet "${sheetName}" contains an invalid row reference "${rowAttribute}".`,
+        );
+      }
+      rowNumber = Number.parseInt(rowAttribute, 10);
+      if (rowNumber > MAX_ROW_NUMBER) {
+        throw new XlsxError('INVALID_REFERENCE', `Sheet "${sheetName}" contains an out-of-range row reference "${rowAttribute}".`);
+      }
+    }
+    previousRowNumber = rowNumber;
+
+    if (parsed.length >= MAX_SHEET_ROWS) {
       truncated = true;
       truncatedRows += 1;
       continue;
     }
+
     const cells: XlsxCell[] = [];
     const cellElements = rowEl.getElementsByTagName('c');
-    const seenCoordinates = new Set<string>();
     for (let c = 0; c < cellElements.length; c++) {
       const cellEl = cellElements[c];
       const ref = cellEl.getAttribute('r');
       let columnIndex = cells.length;
-      if (ref) {
-        columnIndex = columnRefToIndex(ref);
-        if (columnIndex < 0) {
-          throw new XlsxError('INVALID_REFERENCE', `Sheet "${sheetName}" contains an invalid cell reference "${ref}".`);
+      if (ref !== null) {
+        const reference = parseCellReference(ref);
+        if (!reference) {
+          throw new XlsxError(
+            'INVALID_REFERENCE',
+            `Sheet "${sheetName}" contains an invalid cell reference "${ref}".`,
+          );
         }
-        if (seenCoordinates.has(ref)) {
-          throw new XlsxError('DUPLICATE_CELL', `Sheet "${sheetName}" contains the cell "${ref}" more than once.`);
+        if (reference.rowNumber !== rowNumber) {
+          throw new XlsxError(
+            'INVALID_REFERENCE',
+            `Sheet "${sheetName}" places the cell "${ref}" in row ${rowNumber}.`,
+          );
         }
-        seenCoordinates.add(ref);
+        columnIndex = reference.columnIndex;
       }
       if (columnIndex >= MAX_SHEET_COLUMNS) {
         throw new XlsxError('COLUMN_LIMIT', `Sheet "${sheetName}" has more than ${MAX_SHEET_COLUMNS} columns.`);
       }
+
+      const coordinate = rowNumber + ':' + columnIndex;
+      if (usedCoordinates.has(coordinate)) {
+        throw new XlsxError(
+          'DUPLICATE_CELL',
+          `Sheet "${sheetName}" uses the cell at row ${rowNumber}, column ${columnIndex + 1} more than once.`,
+        );
+      }
+      usedCoordinates.add(coordinate);
+
       const type = cellEl.getAttribute('t') ?? 'n';
       const formulaEl = cellEl.getElementsByTagName('f');
       const formula = formulaEl.length ? (formulaEl[0].textContent ?? '') : undefined;
@@ -491,17 +644,27 @@ function parseSheet(part: Uint8Array, sharedStrings: string[], sheetName: string
       // A formula is only "cached" when the file itself stores a result for it.
       const hasCachedValue = formula === undefined ? true : hasStoredValue;
 
-      const cell: XlsxCell = { value, hasCachedValue };
+      const cell: XlsxCell = { value, hasCachedValue, rowNumber, columnIndex };
       if (formula !== undefined) cell.formula = formula;
       const risk = classifyCell(value);
       if (risk) cell.risk = risk;
-      while (cells.length < columnIndex) cells.push({ value: '', hasCachedValue: true });
+      while (cells.length < columnIndex) {
+        cells.push({ value: '', hasCachedValue: true, rowNumber, columnIndex: cells.length });
+      }
       cells[columnIndex] = cell;
     }
-    rows.push(cells);
+    parsed.push({ rowNumber, cells });
   }
 
-  return { name: sheetName, rows, sourceRowCount, truncated, truncatedRows };
+  // The rows are ordered by their physical coordinate, so the analysis table
+  // always reads the sheet from the top down.
+  parsed.sort((a, b) => a.rowNumber - b.rowNumber);
+
+  const rows = parsed.map((row) => row.cells);
+  const rowNumbers = parsed.map((row) => row.rowNumber);
+  const physicalRowCount = rowNumbers.length ? Math.max(...rowNumbers) : 0;
+
+  return { name: sheetName, rows, rowNumbers, physicalRowCount, sourceRowCount, truncated, truncatedRows };
 }
 
 /* ------------------------------------------------------------------ */

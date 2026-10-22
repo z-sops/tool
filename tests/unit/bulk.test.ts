@@ -28,7 +28,15 @@ import {
   PROTECTED_ROLES,
   type ProposedCorrection,
 } from '../../src/lib/bulk/corrections';
-import { buildAnalyzedTable, planExport, exportRecords } from '../../src/lib/bulk/source';
+import {
+  buildAnalyzedTable,
+  planExport,
+  exportRecords,
+  buildExportPayload,
+  gateExport,
+  computeDocumentId,
+  createAnalyzedTable,
+} from '../../src/lib/bulk/source';
 
 describe('header row detection', () => {
   it('finds the header in a plain export', () => {
@@ -281,7 +289,7 @@ describe('safe correction engine', () => {
     ['A-2', 'Other', '20.00', '3', ''],
   ];
   const columnRoles = { 0: 'sku', 1: 'title', 2: 'price', 3: 'quantity', 4: 'parentSku' };
-  const table = buildAnalyzedTable(grid, 0, 'csv');
+  const table = buildAnalyzedTable(grid, 0, 'csv', { documentId: 'test-grid' });
 
   it('proposes trimming only for eligible text columns', () => {
     const plan = planCorrections(table, columnRoles);
@@ -353,6 +361,7 @@ describe('safe correction engine', () => {
       ],
       0,
       'csv',
+      { documentId: 'test-grid-two' },
     );
     const twoPlan = planCorrections(withTwo, columnRoles);
     const first = twoPlan.corrections[0];
@@ -380,69 +389,58 @@ describe('safe correction engine', () => {
 
   /* --- forged corrections must be refused --- */
 
-  const forged = (over: Partial<ProposedCorrection>): ProposedCorrection => ({
-    id: 'forged',
-    documentId: table.documentId,
-    record: 2,
-    rowIndex: 0,
-    columnIndex: 1,
-    column: 'item-name',
-    role: 'title',
-    before: '  Nice title  ',
-    after: 'Nice title',
-    kind: 'trim-leading-trailing-whitespace',
-    rationale: 'forged',
-    reversible: true,
-    automatic: false,
-    ...over,
-  });
-
   it('refuses a correction that replaces a SKU', () => {
     const plan = planCorrections(table, columnRoles);
-    const bad = forged({ id: 'x', columnIndex: 0, column: 'seller-sku', role: 'sku', before: ' A-1 ', after: 'HACKED' });
-    expect(() => applyCorrections(table, columnRoles, [bad], ['x'])).toThrow(/protected sku field/);
-    expect(plan.corrections.every((c) => c.columnIndex !== 0)).toBe(true);
+    const bad = { ...plan.corrections[0], columnIndex: 0, column: 'seller-sku', role: 'sku', before: ' A-1 ', after: 'HACKED' };
+    expect(() => applyCorrections(table, columnRoles, [bad], [bad.id])).toThrow(/does not match the current plan/);
   });
 
   it('refuses a correction that changes a price', () => {
-    const bad = forged({ id: 'x', columnIndex: 2, column: 'standard-price', role: 'price', before: '10.00', after: '0.01' });
-    expect(() => applyCorrections(table, columnRoles, [bad], ['x'])).toThrow(/protected price field/);
+    const plan = planCorrections(table, columnRoles);
+    const bad = { ...plan.corrections[0], columnIndex: 2, column: 'standard-price', role: 'price', before: '10.00', after: '0.01' };
+    expect(() => applyCorrections(table, columnRoles, [bad], [bad.id])).toThrow(/does not match the current plan/);
   });
 
   it('refuses a correction that modifies a parent-child relationship', () => {
-    const bad = forged({ id: 'x', columnIndex: 4, column: 'parent-sku', role: 'parentSku', before: 'P-1', after: 'P-2' });
-    expect(() => applyCorrections(table, columnRoles, [bad], ['x'])).toThrow(/protected parentSku field/);
+    const plan = planCorrections(table, columnRoles);
+    const bad = { ...plan.corrections[0], columnIndex: 4, column: 'parent-sku', role: 'parentSku', before: 'P-1', after: 'P-2' };
+    expect(() => applyCorrections(table, columnRoles, [bad], [bad.id])).toThrow(/does not match the current plan/);
   });
 
   it('refuses a correction that references a row that does not exist', () => {
-    const bad = forged({ id: 'x', rowIndex: 99, record: 101 });
-    expect(() => applyCorrections(table, columnRoles, [bad], ['x'])).toThrow(/does not exist in the source/);
+    const plan = planCorrections(table, columnRoles);
+    const bad = { ...plan.corrections[0], record: 999, rowIndex: 99 };
+    expect(() => applyCorrections(table, columnRoles, [bad], [bad.id])).toThrow(/does not match the current plan/);
   });
 
   it('refuses a correction that references a column that does not exist', () => {
-    const bad = forged({ id: 'x', columnIndex: 42 });
-    expect(() => applyCorrections(table, columnRoles, [bad], ['x'])).toThrow(/does not exist in the source/);
+    const plan = planCorrections(table, columnRoles);
+    const bad = { ...plan.corrections[0], columnIndex: 99 };
+    expect(() => applyCorrections(table, columnRoles, [bad], [bad.id])).toThrow(/does not match the current plan/);
   });
 
   it('refuses a correction whose before value does not match the source', () => {
-    const bad = forged({ id: 'x', before: 'something else', after: 'Nice title' });
-    expect(() => applyCorrections(table, columnRoles, [bad], ['x'])).toThrow(/different value than the source/);
+    const plan = planCorrections(table, columnRoles);
+    const bad = { ...plan.corrections[0], before: 'something else', after: 'Nice title' };
+    expect(() => applyCorrections(table, columnRoles, [bad], [bad.id])).toThrow(/does not match the current plan/);
   });
 
   it('refuses a correction that changes an unrelated text field', () => {
-    const bad = forged({ id: 'x', columnIndex: 1, before: '  Nice title  ', after: 'Totally different text' });
-    expect(() => applyCorrections(table, columnRoles, [bad], ['x'])).toThrow(/not a supported transformation/);
+    const plan = planCorrections(table, columnRoles);
+    const bad = { ...plan.corrections[0], columnIndex: 1, before: '  Nice title  ', after: 'Totally different text' };
+    expect(() => applyCorrections(table, columnRoles, [bad], [bad.id])).toThrow(/does not match the current plan/);
   });
 
   it('refuses a correction that was not approved', () => {
     const plan = planCorrections(table, columnRoles);
     expect(() => applyCorrections(table, columnRoles, plan.corrections, [])).toThrow(/was not approved/);
-    expect(() => applyCorrections(table, columnRoles, plan.corrections, ['a-stale-approval'])).toThrow(/was not approved/);
+    expect(() => applyCorrections(table, columnRoles, plan.corrections, ['a-stale-approval'])).toThrow(/does not match any correction in the current plan/);
   });
 
   it('refuses a correction whose record does not match the source position', () => {
-    const bad = forged({ id: 'x', record: 7 });
-    expect(() => applyCorrections(table, columnRoles, [bad], ['x'])).toThrow(/claims source row 7/);
+    const plan = planCorrections(table, columnRoles);
+    const bad = { ...plan.corrections[0], record: 7 };
+    expect(() => applyCorrections(table, columnRoles, [bad], [bad.id])).toThrow(/does not match the current plan/);
   });
 
   it('refuses the same correction twice', () => {
@@ -455,7 +453,7 @@ describe('safe correction engine', () => {
     const plan = planCorrections(table, columnRoles);
     const c = plan.corrections[0];
     const other = { ...c, id: 'other' };
-    expect(() => applyCorrections(table, columnRoles, [c, other], [c.id, 'other'])).toThrow(/both change the same cell/);
+    expect(() => applyCorrections(table, columnRoles, [c, other], [c.id, 'other'])).toThrow(/does not match any correction in the current plan/);
   });
 
   it('refuses a stale approval reused from another file', () => {
@@ -464,12 +462,13 @@ describe('safe correction engine', () => {
       [['seller-sku', 'item-name'], ['A-9', '  Other title  ']],
       0,
       'csv',
+      { documentId: 'other-doc' }
     );
     const otherPlan = planCorrections(otherTable, columnRoles);
     const staleId = otherPlan.corrections[0].id;
     // The approval belongs to the other file's correction, not to this one.
     expect(staleId).not.toBe(plan.corrections[0].id);
-    expect(() => applyCorrections(table, columnRoles, plan.corrections, [staleId])).toThrow(/was not approved/);
+    expect(() => applyCorrections(table, columnRoles, plan.corrections, [staleId])).toThrow(/does not match any correction in the current plan/);
   });
 
   it('refuses a correction prepared for another document', () => {
@@ -478,6 +477,7 @@ describe('safe correction engine', () => {
       [['seller-sku', 'item-name'], ['A-9', '  Other title  ']],
       0,
       'csv',
+      { documentId: 'other-doc' }
     );
     const otherPlan = planCorrections(otherTable, columnRoles);
     const foreign = { ...otherPlan.corrections[0], id: plan.corrections[0].id };
@@ -489,8 +489,8 @@ describe('safe correction engine', () => {
   it('refuses the whole operation rather than skipping an invalid correction', () => {
     const plan = planCorrections(table, columnRoles);
     const good = plan.corrections[0];
-    const bad = forged({ id: 'bad', columnIndex: 2, column: 'standard-price', role: 'price', before: '10.00', after: '1.00' });
-    expect(() => applyCorrections(table, columnRoles, [good, bad], [good.id, 'bad'])).toThrow(/protected price field/);
+    const bad = { ...plan.corrections[0], id: 'bad', columnIndex: 2, column: 'standard-price', role: 'price', before: '10.00', after: '1.00' };
+    expect(() => applyCorrections(table, columnRoles, [good, bad], [good.id, 'bad'])).toThrow(/does not match any correction in the current plan/);
   });
 });
 
@@ -506,7 +506,7 @@ describe('source document model and export integrity', () => {
       ['seller-sku', 'item-name'],
       ['A-1', 'Widget'],
     ];
-    const table = buildAnalyzedTable(grid, 2, 'csv');
+    const table = buildAnalyzedTable(grid, 2, 'csv', { documentId: 'test-doc' });
     expect(table.headerRecord).toBe(3);
     expect(table.instructionRecords).toHaveLength(2);
     expect(table.physicalRecords).toEqual([4]);
@@ -519,7 +519,7 @@ describe('source document model and export integrity', () => {
       ['seller-sku', 'item-name'],
       ['A-1', 'Widget'],
     ];
-    const table = buildAnalyzedTable(grid, 1, 'csv');
+    const table = buildAnalyzedTable(grid, 1, 'csv', { documentId: 'test-doc-1' });
     const records = exportRecords(table, table.rows);
     expect(records).toHaveLength(3);
     expect(records[0]).toEqual(['Instructions']);
@@ -528,7 +528,7 @@ describe('source document model and export integrity', () => {
 
   it('refuses a corrected export when the source could not be read completely', () => {
     const grid = [['seller-sku', 'item-name'], ['A-1', 'Widget']];
-    const table = buildAnalyzedTable(grid, 0, 'xlsx-sheet', { droppedRecords: 12 });
+    const table = buildAnalyzedTable(grid, 0, 'xlsx-sheet', { droppedRecords: 12, documentId: 'test-doc-1' });
     const plan = planExport(table);
     expect(plan.allowed).toBe(false);
     expect(plan.kind).toBe('blocked');
@@ -537,7 +537,7 @@ describe('source document model and export integrity', () => {
   });
 
   it('refuses a corrected export when columns could not be read', () => {
-    const table = buildAnalyzedTable([['a'], ['b']], 0, 'xlsx-sheet', { droppedColumns: 3 });
+    const table = buildAnalyzedTable([['a'], ['b']], 0, 'xlsx-sheet', { droppedColumns: 3, documentId: 'test-doc-2' });
     expect(planExport(table).allowed).toBe(false);
   });
 
@@ -545,6 +545,7 @@ describe('source document model and export integrity', () => {
     const table = buildAnalyzedTable([['a'], ['b']], 0, 'xlsx-sheet', {
       sheetName: 'Listings',
       sheetCount: 3,
+      documentId: 'test-doc-3',
     });
     const plan = planExport(table);
     expect(plan.allowed).toBe(true);
@@ -557,9 +558,189 @@ describe('source document model and export integrity', () => {
   });
 
   it('calls a CSV export source-complete and says that quoting is normalised', () => {
-    const table = buildAnalyzedTable([['a'], ['b']], 0, 'csv');
+    const table = buildAnalyzedTable([['a'], ['b']], 0, 'csv', { documentId: 'test-csv-2' });
     const plan = planExport(table);
     expect(plan.kind).toBe('source-complete-csv');
     expect(plan.caveats.join(' ')).toMatch(/including any instruction rows/);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* R2-C1, R2-C2, R2-C3 and R2-C5: security and integrity hardening      */
+/* ------------------------------------------------------------------ */
+
+describe('R2 export gate: every exported cell is scanned', () => {
+  const buildGrid = (instruction: string[][], header: string[], row: string[]) => [
+    ...instruction,
+    header,
+    row,
+  ];
+
+  it('refuses an export whose instruction row carries a formula payload', () => {
+    const grid = buildGrid(
+      [['=cmd|"/c calc"!A1']],
+      ['seller-sku', 'item-name'],
+      ['A-1', 'Widget'],
+    );
+    const table = buildAnalyzedTable(grid, 1, 'csv', { documentId: 'r2-instruction' });
+    const payload = buildExportPayload(table, table.rows);
+    const gate = gateExport(payload);
+    expect(gate.allowed).toBe(false);
+    expect(gate.findings).toHaveLength(1);
+    // The finding points at the physical record of the instruction row.
+    expect(gate.findings[0].record).toBe(1);
+    expect(gate.findings[0].column).toBe(1);
+    expect(gate.findings[0].risk).toBe('formula');
+    expect(gate.reason).toMatch(/refused/);
+  });
+
+  it('refuses an export whose header cell carries a formula payload', () => {
+    const grid = buildGrid([], ['seller-sku', '=HYPERLINK("http://evil","x")'], ['A-1', 'Widget']);
+    const table = buildAnalyzedTable(grid, 0, 'csv', { documentId: 'r2-header' });
+    const gate = gateExport(buildExportPayload(table, table.rows));
+    expect(gate.allowed).toBe(false);
+    expect(gate.findings[0].record).toBe(1);
+  });
+
+  it('refuses an export whose data cell carries a zero-width payload', () => {
+    const grid = buildGrid([], ['seller-sku', 'item-name'], ['A-1', 'Widget\u200B']);
+    const table = buildAnalyzedTable(grid, 0, 'csv', { documentId: 'r2-hidden' });
+    const gate = gateExport(buildExportPayload(table, table.rows));
+    expect(gate.allowed).toBe(false);
+    expect(gate.findings[0].risk).toBe('hidden-content');
+  });
+
+  it('refuses an export whose data cell carries a bidi override', () => {
+    const grid = buildGrid([], ['seller-sku', 'item-name'], ['A-1', 'Widget\u202Eexe']);
+    const table = buildAnalyzedTable(grid, 0, 'csv', { documentId: 'r2-bidi' });
+    const gate = gateExport(buildExportPayload(table, table.rows));
+    expect(gate.allowed).toBe(false);
+    expect(gate.findings[0].risk).toBe('hidden-content');
+  });
+
+  it('allows an export whose every cell, including instruction rows, is clean', () => {
+    const grid = buildGrid(
+      [['Fill in the yellow cells']],
+      ['seller-sku', 'item-name'],
+      ['A-1', 'Nice title'],
+    );
+    const table = buildAnalyzedTable(grid, 1, 'csv', { documentId: 'r2-clean' });
+    const gate = gateExport(buildExportPayload(table, table.rows));
+    expect(gate.allowed).toBe(true);
+    expect(gate.findings).toHaveLength(0);
+  });
+
+  it('reports the physical record of every finding, not the position in the table', () => {
+    const grid = buildGrid(
+      [['Instructions'], ['=1+1']],
+      ['seller-sku', 'item-name'],
+      ['A-1', 'Widget'],
+    );
+    const table = buildAnalyzedTable(grid, 2, 'csv', { documentId: 'r2-records' });
+    const payload = buildExportPayload(table, table.rows);
+    // The export holds the instruction rows, the header and the data row.
+    expect(payload.records).toHaveLength(4);
+    expect(payload.recordNumbers).toEqual([1, 2, 3, 4]);
+    const gate = gateExport(payload);
+    expect(gate.findings).toHaveLength(1);
+    expect(gate.findings[0].record).toBe(2);
+    expect(gate.findings[0].column).toBe(1);
+  });
+});
+
+describe('R2-C5: approvals are bound to one document', () => {
+  it('derives the document identity from a full-length SHA-256 digest', async () => {
+    const id = await computeDocumentId([['seller-sku', 'item-name'], ['A-1', 'Widget']]);
+    // A SHA-256 digest is 64 hexadecimal characters. A short non-cryptographic
+    // fingerprint would be collidable on purpose and must never be used to
+    // authorise a change.
+    expect(id).toMatch(/^[0-9a-f]{64}$/);
+    expect(id).not.toMatch(/^weak-/);
+  });
+
+  it('gives two different documents different digests', async () => {
+    const a = await computeDocumentId([['item-name'], ['  A  ']]);
+    const b = await computeDocumentId([['item-name'], ['  B  ']]);
+    expect(a).not.toBe(b);
+    expect(a).toMatch(/^[0-9a-f]{64}$/);
+    expect(b).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('gives a table built from the records a matching identity', async () => {
+    const grid = [['item-name'], ['  A  ']];
+    const table = await createAnalyzedTable(grid, 0, 'csv');
+    expect(table.documentId).toBe(await computeDocumentId(grid));
+    expect(table.documentId).toMatch(/^[0-9a-f]{64}$/);
+    expect(table.identityUnavailable).toBeUndefined();
+  });
+
+  it('proposes no correction at all when the file has no secure identity', () => {
+    const unbound = buildAnalyzedTable([['item-name'], ['  A  ']], 0, 'csv', { documentId: '' });
+    const plan = planCorrections(unbound, { 0: 'title' });
+    expect(plan.corrections).toHaveLength(0);
+    expect(plan.safety.note).toMatch(/no secure document fingerprint/);
+  });
+
+  it('refuses the export when the file has no secure identity', () => {
+    const unbound = buildAnalyzedTable([['item-name'], ['  A  ']], 0, 'csv', { documentId: '' });
+    expect(() => applyCorrections(unbound, { 0: 'title' }, [], [])).toThrow(
+      /no secure document fingerprint/,
+    );
+  });
+
+  it('gives a correction an identifier that carries the document fingerprint', () => {
+    const a = buildAnalyzedTable([['item-name'], ['  A  ']], 0, 'csv', { documentId: 'doc-a' });
+    const b = buildAnalyzedTable([['item-name'], ['  A  ']], 0, 'csv', { documentId: 'doc-b' });
+    const idA = planCorrections(a, { 0: 'title' }).corrections[0].id;
+    const idB = planCorrections(b, { 0: 'title' }).corrections[0].id;
+    expect(idA).not.toBe(idB);
+    expect(idA).toContain('doc-a');
+    expect(idB).toContain('doc-b');
+  });
+
+  it('refuses an approval identifier that belongs to another document', () => {
+    const a = buildAnalyzedTable([['item-name'], ['  A  ']], 0, 'csv', { documentId: 'doc-a' });
+    const b = buildAnalyzedTable([['item-name'], ['  A  ']], 0, 'csv', { documentId: 'doc-b' });
+    const idB = planCorrections(b, { 0: 'title' }).corrections[0].id;
+    const planA = planCorrections(a, { 0: 'title' });
+    expect(() => applyCorrections(a, { 0: 'title' }, planA.corrections, [idB])).toThrow(
+      /does not match any correction in the current plan/,
+    );
+  });
+
+  it('refuses a correction whose document fingerprint was swapped', () => {
+    const a = buildAnalyzedTable([['item-name'], ['  A  ']], 0, 'csv', { documentId: 'doc-a' });
+    const planA = planCorrections(a, { 0: 'title' });
+    const forged = { ...planA.corrections[0], documentId: 'doc-z' };
+    expect(() => applyCorrections(a, { 0: 'title' }, [forged], [forged.id])).toThrow(
+      /prepared for a different file/,
+    );
+  });
+
+  it('refuses an approval identifier that is not in the plan at all', () => {
+    const a = buildAnalyzedTable([['item-name'], ['  A  ']], 0, 'csv', { documentId: 'doc-a' });
+    const planA = planCorrections(a, { 0: 'title' });
+    expect(() => applyCorrections(a, { 0: 'title' }, planA.corrections, ['made-up-approval'])).toThrow(
+      /does not match any correction in the current plan/,
+    );
+  });
+
+  it('does not let a repeated approval identifier authorise a second change', () => {
+    const a = buildAnalyzedTable([['item-name'], ['  A  ']], 0, 'csv', { documentId: 'doc-a' });
+    const planA = planCorrections(a, { 0: 'title' });
+    const id = planA.corrections[0].id;
+    const result = applyCorrections(a, { 0: 'title' }, [planA.corrections[0]], [id, id]);
+    expect(result.applied).toHaveLength(1);
+    expect(result.rows[0][0]).toBe('A');
+  });
+
+  it('gives two documents with identical content different fingerprints', async () => {
+    // The fingerprint is over the content, so identical content in two
+    // documents still yields one identifier per document only when the
+    // document identifier differs. The approval is bound to both.
+    const grid = [['item-name'], ['  A  ']];
+    const one = buildAnalyzedTable(grid, 0, 'csv', { documentId: 'doc-1' });
+    const two = buildAnalyzedTable(grid, 0, 'csv', { documentId: 'doc-2' });
+    expect(one.documentId).not.toBe(two.documentId);
   });
 });

@@ -6,6 +6,7 @@ import {
   columnRefToIndex,
   classifyCell,
   XlsxError,
+  MAX_XLSX_BYTES,
   MAX_XLSX_UNCOMPRESSED_BYTES,
   MAX_SHEETS,
   MAX_SHEET_ROWS,
@@ -334,7 +335,7 @@ describe('XLSX parser hardening', () => {
     const copy = bytes.slice();
     const offset = centralEntryOffset(copy, 'xl/worksheets/sheet1.xml');
     patchUint32(copy, offset + 24, 0xffffffff);
-    await expect(parseWorkbook(copy)).rejects.toMatchObject({ code: 'ZIP_CORRUPT' });
+    await expect(parseWorkbook(copy)).rejects.toMatchObject({ code: 'UNSUPPORTED_ARCHIVE' });
   });
 
   it('rejects a file that is not an archive at all', async () => {
@@ -350,5 +351,202 @@ describe('XLSX parser hardening', () => {
     expect(workbook.sheets).toHaveLength(1);
     // The macro part is not present in anything the reader produced.
     expect(workbook.sheets[0].rows[0][0].value).toBe('a');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* R2-C2: physical coordinates, sparse rows and malformed references    */
+/* ------------------------------------------------------------------ */
+
+/** Builds a workbook whose only worksheet carries the given row XML. */
+function buildWithRows(rowXml: string): Uint8Array {
+  const sheet =
+    '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+    rowXml +
+    '</sheetData></worksheet>';
+  return zipSync({
+    'xl/workbook.xml': strToU8('<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+    'xl/_rels/workbook.xml.rels': strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+    'xl/worksheets/sheet1.xml': strToU8(sheet),
+  });
+}
+
+describe('R2-C2: physical coordinates and sparse rows', () => {
+  it('keeps the physical row number of every row the file carried', async () => {
+    const workbook = await parseWorkbook(
+      buildWithRows(
+        '<row r="1"><c r="A1" t="inlineStr"><is><t>first</t></is></c></row>' +
+          '<row r="5"><c r="A5" t="inlineStr"><is><t>fifth</t></is></c></row>' +
+          '<row r="9"><c r="A9" t="inlineStr"><is><t>ninth</t></is></c></row>',
+      ),
+    );
+    const sheet = workbook.sheets[0] as XlsxSheet;
+    expect(sheet.rowNumbers).toEqual([1, 5, 9]);
+    expect(sheet.rows[1][0].rowNumber).toBe(5);
+    expect(sheet.rows[1][0].value).toBe('fifth');
+    // The file carried three rows, but the sheet physically holds nine.
+    expect(sheet.sourceRowCount).toBe(3);
+    expect(sheet.physicalRowCount).toBe(9);
+  });
+
+  it('reports the physical column index of every cell', async () => {
+    const workbook = await parseWorkbook(
+      buildWithRows(
+        '<row r="1"><c r="A1" t="inlineStr"><is><t>a</t></is></c>' +
+          '<c r="C1" t="inlineStr"><is><t>c</t></is></c></row>',
+      ),
+    );
+    const sheet = workbook.sheets[0] as XlsxSheet;
+    // B1 is missing in the file, so it is filled in as an empty placeholder.
+    expect(sheet.rows[0]).toHaveLength(3);
+    expect(sheet.rows[0][0].columnIndex).toBe(0);
+    expect(sheet.rows[0][1].value).toBe('');
+    expect(sheet.rows[0][2].columnIndex).toBe(2);
+    expect(sheet.rows[0][2].value).toBe('c');
+  });
+
+  it('orders the rows by their physical coordinate, not by their order in the file', async () => {
+    const workbook = await parseWorkbook(
+      buildWithRows(
+        '<row r="9"><c r="A9" t="inlineStr"><is><t>ninth</t></is></c></row>' +
+          '<row r="2"><c r="A2" t="inlineStr"><is><t>second</t></is></c></row>',
+      ),
+    );
+    const sheet = workbook.sheets[0] as XlsxSheet;
+    expect(sheet.rowNumbers).toEqual([2, 9]);
+    expect(sheet.rows.map((r) => r[0].value)).toEqual(['second', 'ninth']);
+  });
+
+  it('continues from the previous row when a row states no coordinate', async () => {
+    const workbook = await parseWorkbook(
+      buildWithRows(
+        '<row r="4"><c r="A4" t="inlineStr"><is><t>a</t></is></c></row>' +
+          '<row><c t="inlineStr"><is><t>b</t></is></c></row>',
+      ),
+    );
+    const sheet = workbook.sheets[0] as XlsxSheet;
+    expect(sheet.rowNumbers).toEqual([4, 5]);
+  });
+
+  it('rejects a row reference that is not a number', async () => {
+    await expect(parseWorkbook(buildWithRows('<row r="abc"><c r="A1"/></row>'))).rejects.toMatchObject({
+      code: 'INVALID_REFERENCE',
+    });
+  });
+
+  it('rejects a row reference of zero', async () => {
+    await expect(parseWorkbook(buildWithRows('<row r="0"><c r="A1"/></row>'))).rejects.toMatchObject({
+      code: 'INVALID_REFERENCE',
+    });
+  });
+
+  it('rejects a row reference beyond the highest Excel row', async () => {
+    await expect(
+      parseWorkbook(buildWithRows('<row r="1048577"><c r="A1048577"/></row>')),
+    ).rejects.toMatchObject({ code: 'INVALID_REFERENCE' });
+  });
+
+  it('rejects a cell that claims to sit in another row', async () => {
+    await expect(
+      parseWorkbook(buildWithRows('<row r="3"><c r="A7" t="inlineStr"><is><t>x</t></is></c></row>')),
+    ).rejects.toMatchObject({ code: 'INVALID_REFERENCE' });
+  });
+
+  it('rejects a lowercase cell reference', async () => {
+    await expect(parseWorkbook(buildWithReference('a1'))).rejects.toMatchObject({
+      code: 'INVALID_REFERENCE',
+    });
+  });
+
+  it('rejects a cell reference with trailing junk', async () => {
+    await expect(parseWorkbook(buildWithReference('A1junk'))).rejects.toMatchObject({
+      code: 'INVALID_REFERENCE',
+    });
+  });
+
+  it('rejects a cell reference with a zero row number', async () => {
+    await expect(parseWorkbook(buildWithReference('A0'))).rejects.toMatchObject({
+      code: 'INVALID_REFERENCE',
+    });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* R2-C4: archive integrity and decompression limits                    */
+/* ------------------------------------------------------------------ */
+
+describe('R2-C4: ZIP archive integrity', () => {
+  it('rejects an archive that understates the size of a part', async () => {
+    const bytes = buildXlsx([{ name: 'S', rows: [['a']] }]);
+    const copy = bytes.slice();
+    const offset = centralEntryOffset(copy, 'xl/worksheets/sheet1.xml');
+    // Claim the part is far smaller than it really is.
+    patchUint32(copy, offset + 24, 1);
+    await expect(parseWorkbook(copy)).rejects.toMatchObject({ code: 'ZIP_CORRUPT' });
+  });
+
+  it('rejects an archive that overstates the size of a part', async () => {
+    const bytes = buildXlsx([{ name: 'S', rows: [['a']] }]);
+    const copy = bytes.slice();
+    const offset = centralEntryOffset(copy, 'xl/worksheets/sheet1.xml');
+    // Claim the part is far larger than it really is.
+    patchUint32(copy, offset + 24, 0x00ffffff);
+    await expect(parseWorkbook(copy)).rejects.toMatchObject({ code: 'ZIP_CORRUPT' });
+  });
+
+  it('rejects an archive that contains the same part twice', async () => {
+    const bytes = buildXlsx([{ name: 'S', rows: [['a']] }]);
+    const copy = bytes.slice();
+    const offset = centralEntryOffset(copy, 'xl/worksheets/sheet1.xml');
+    const dv = new DataView(copy.buffer, copy.byteOffset, copy.byteLength);
+    const nameLength = dv.getUint16(offset + 28, true);
+    const extraLength = dv.getUint16(offset + 30, true);
+    const commentLength = dv.getUint16(offset + 32, true);
+    const entrySize = 46 + nameLength + extraLength + commentLength;
+    const entryBytes = copy.slice(offset, offset + entrySize);
+
+    // The end-of-central-directory record sits at the end of the file.
+    const eocd = copy.length - 22;
+    expect(dv.getUint32(eocd, true)).toBe(0x06054b50);
+    const centralSize = dv.getUint32(eocd + 12, true);
+    const centralOffset = dv.getUint32(eocd + 16, true);
+    const entries = dv.getUint16(eocd + 10, true);
+
+    // Insert a second copy of the entry at the end of the central directory,
+    // so the archive really does list the same part twice.
+    const insertAt = centralOffset + centralSize;
+    const duplicated = new Uint8Array(copy.length + entrySize);
+    duplicated.set(copy.subarray(0, insertAt), 0);
+    duplicated.set(entryBytes, insertAt);
+    duplicated.set(copy.subarray(insertAt), insertAt + entrySize);
+
+    const out = new DataView(duplicated.buffer, duplicated.byteOffset, duplicated.byteLength);
+    const newEocd = duplicated.length - 22;
+    out.setUint16(newEocd + 10, entries + 1, true);
+    out.setUint32(newEocd + 12, centralSize + entrySize, true);
+    out.setUint32(newEocd + 16, centralOffset, true);
+
+    await expect(parseWorkbook(duplicated)).rejects.toMatchObject({ code: 'ZIP_CORRUPT' });
+  });
+
+  it('refuses a part that expands beyond the per-part limit', async () => {
+    // A highly compressible part: the archive is small, the content is not.
+    const bomb = 'x'.repeat(MAX_XLSX_UNCOMPRESSED_BYTES + 1024);
+    await expect(
+      parseWorkbook(buildXlsx([{ name: 'S', rows: [['a']] }], { 'xl/sharedStrings.xml': bomb })),
+    ).rejects.toMatchObject({ code: 'UNCOMPRESSED_LIMIT' });
+  });
+
+  it('rejects an archive that is not a readable zip at all', async () => {
+    await expect(parseWorkbook(strToU8('PK not really a zip'))).rejects.toBeInstanceOf(XlsxError);
+  });
+
+  it('rejects a file that is too small to be an archive', async () => {
+    await expect(parseWorkbook(strToU8('PK'))).rejects.toMatchObject({ code: 'NOT_A_ZIP' });
+  });
+
+  it('rejects a workbook larger than the size limit before it is parsed', async () => {
+    const oversized = new Uint8Array(MAX_XLSX_BYTES + 1);
+    await expect(parseWorkbook(oversized)).rejects.toMatchObject({ code: 'TOO_LARGE' });
   });
 });

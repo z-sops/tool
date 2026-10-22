@@ -33,7 +33,13 @@ import {
   buildCorrectionReport,
   type ProposedCorrection,
 } from '../../lib/bulk/corrections';
-import { buildAnalyzedTable, planExport, exportRecords, type AnalyzedTable } from '../../lib/bulk/source';
+import {
+  createAnalyzedTable,
+  planExport,
+  buildExportPayload,
+  gateExport,
+  type AnalyzedTable,
+} from '../../lib/bulk/source';
 import { createOperationGuard } from '../../lib/bulk/operation';
 import syntheticFixture from '../../lib/bulk/fixtures/synthetic-processing-report.json';
 
@@ -93,6 +99,12 @@ export function BulkFileDoctorPage() {
    */
   const fileOps = useRef(createOperationGuard());
   const reportOps = useRef(createOperationGuard());
+  /**
+   * Switching worksheets is its own operation. Reading a worksheet is
+   * asynchronous, so two quick switches could otherwise both finish and let
+   * the slower one put the previous worksheet back on screen.
+   */
+  const sheetOps = useRef(createOperationGuard());
 
   const columnRoles = useMemo(() => {
     if (!table) return {} as Record<number, string>;
@@ -160,9 +172,14 @@ export function BulkFileDoctorPage() {
     setApproveAll(false);
     setMatches([]);
     setUnmatched([]);
+    // The row mapping belongs to the sheet it was produced from. Switching
+    // worksheets must not leave the previous sheet's rows attached to the
+    // processing report.
+    setRowsByError(new Map());
   };
 
   const loadSheet = (wb: XlsxWorkbook, index: number, op: number) => {
+    const sheetOp = sheetOps.current.begin();
     const sheet = wb.sheets[index];
     if (!sheet) return;
     const grid = sheet.rows.map((row) => row.map((cell) => cell.value));
@@ -171,9 +188,11 @@ export function BulkFileDoctorPage() {
 
     const extra: Issue[] = [];
     sheet.rows.forEach((row, rowIndex) => {
+      if (rowIndex < headerIndex) return;
       row.forEach((cell, colIndex) => {
-        const record = rowIndex + 1;
-        if (record <= headerIndex) return;
+        // The physical Excel row number of the cell, which is not the position
+        // of the row in the file: worksheet XML may omit blank rows.
+        const record = cell.rowNumber || sheet.rowNumbers[rowIndex] || rowIndex + 1;
         const field = (grid[headerIndex] ?? [])[colIndex] ?? 'column-' + (colIndex + 1);
         if (cell.formula !== undefined) {
           if (cell.hasCachedValue) {
@@ -209,14 +228,26 @@ export function BulkFileDoctorPage() {
       });
     });
 
-    const nextTable = buildAnalyzedTable(grid, headerIndex, 'xlsx-sheet', {
-      sheetName: sheet.name,
-      sheetCount: wb.sheets.length,
-      sheetRecords: sheet.sourceRowCount,
-      droppedRecords: sheet.truncatedRows,
-      droppedColumns: 0,
+    void createAnalyzedTable(
+      grid,
+      headerIndex,
+      'xlsx-sheet',
+      {
+        sheetName: sheet.name,
+        sheetCount: wb.sheets.length,
+        sheetRecords: sheet.physicalRowCount,
+        droppedRecords: sheet.truncatedRows,
+        droppedColumns: 0,
+        // The physical row of every data row, so a finding points at the right
+        // line of the worksheet even when rows are omitted.
+        physicalRecords: sheet.rowNumbers.slice(headerIndex + 1),
+      },
+    ).then((nextTable) => {
+      if (!fileOps.current.isCurrent(op)) return;
+      // Only the worksheet the user is looking at may be applied.
+      if (!sheetOps.current.isCurrent(sheetOp)) return;
+      applyTable(nextTable, extra, detection, analyseTemplate(nextTable.headers));
     });
-    applyTable(nextTable, extra, detection, analyseTemplate(nextTable.headers));
     if (!fileOps.current.isCurrent(op)) return;
   };
 
@@ -276,7 +307,10 @@ export function BulkFileDoctorPage() {
       const allRows = [parsed.headers, ...parsed.rows];
       const detection = detectHeaderRow(allRows);
       const headerIndex = detection ? detection.headerRowIndex : 0;
-      const nextTable = buildAnalyzedTable(allRows, headerIndex, 'csv');
+      // The CSV is given the same cryptographic document identity as a
+      // workbook, so an approval is bound to this file and to no other.
+      const nextTable = await createAnalyzedTable(allRows, headerIndex, 'csv');
+      if (!fileOps.current.isCurrent(op)) return;
       setName(stem);
       setFile(selected);
       applyTable(nextTable, [], detection, analyseTemplate(nextTable.headers));
@@ -362,8 +396,16 @@ export function BulkFileDoctorPage() {
     try {
       const selected = plan.corrections.filter((c) => approved[c.id]);
       const result = applyCorrections(table, columnRoles, selected, selected.map((c) => c.id));
-      const records = exportRecords(table, result.rows);
-      saveFile(name + '-corrected.csv', serializeRecords(records), 'text/csv;charset=utf-8');
+      // The whole export is scanned, including the instruction rows above the
+      // header and every column, so a payload cannot hide outside the
+      // analysed rows.
+      const payload = buildExportPayload(table, result.rows);
+      const gate = gateExport(payload);
+      if (!gate.allowed) {
+        setExportError(gate.reason ?? 'The export was refused.');
+        return;
+      }
+      saveFile(name + '-corrected.csv', serializeRecords(payload.records), 'text/csv;charset=utf-8');
       setExportError('');
     } catch (e) {
       setExportError(e instanceof Error ? e.message : 'The export was refused.');
@@ -605,6 +647,9 @@ export function BulkFileDoctorPage() {
               <h2 className="font-bold mb-2">Correction review</h2>
               {plan && (
                 <p className="text-xs text-gray-600 mb-2" data-testid="file-doctor-safety">{plan.safety.note}</p>
+              )}
+              {table.identityUnavailable && (
+                <p className="text-xs text-amber-800 mb-2" data-testid="file-doctor-identity">{table.identityUnavailable}</p>
               )}
               <label className="flex items-start gap-2 text-sm">
                 <input

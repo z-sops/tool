@@ -138,6 +138,27 @@ export function planCorrections(
   const corrections: ProposedCorrection[] = [];
   const skipped: SkippedCorrection[] = [];
 
+  // Without a cryptographic document identity an approval cannot be bound to
+  // this file, so no correction is proposed at all. Proposing one and
+  // authorising it later would mean the approval authorises a file it was
+  // never given for.
+  if (!table.documentId) {
+    return {
+      corrections,
+      skipped,
+      safety: {
+        rowsAdded: 0,
+        rowsRemoved: 0,
+        columnsRemoved: 0,
+        identifiersChanged: 0,
+        protectedRoles: PROTECTED_ROLES,
+        note:
+          'No correction is proposed for this file because it has no secure document fingerprint, ' +
+          'so an approval could not be bound to it. Nothing has been changed.',
+      },
+    };
+  }
+
   table.rows.forEach((row, rowIndex) => {
     row.forEach((value, columnIndex) => {
       const column = table.headers[columnIndex] ?? 'column-' + (columnIndex + 1);
@@ -228,10 +249,36 @@ export function applyCorrections(
   corrections: ProposedCorrection[],
   approvedIds: string[],
 ): ApplyResult {
+  // The export is refused outright when the document has no cryptographic
+  // identity, because an approval could not be bound to this file.
+  if (!table.documentId) {
+    throw new CorrectionRejected(
+      null,
+      'The export was refused because this file has no secure document fingerprint, so an approval cannot be bound to it.',
+    );
+  }
+
+  // The canonical plan for this exact document is recomputed here. A
+  // correction the caller supplies is only accepted when it is exactly one of
+  // the corrections this document would produce, so neither a caller supplied
+  // identifier nor a caller supplied fingerprint authorises anything.
+  const canonical = planCorrections(table, columnRoles);
+  const canonicalById = new Map(canonical.corrections.map((c) => [c.id, c]));
+
   const seenIds = new Set<string>();
   const touched = new Map<string, string>();
+  // A repeated approval identifier must not authorise an extra modification.
   const approved = new Set(approvedIds);
   const toApply: ProposedCorrection[] = [];
+
+  for (const id of approved) {
+    if (!canonicalById.has(id)) {
+      throw new CorrectionRejected(
+        id,
+        'The approval "' + id + '" does not match any correction in the current plan. The export was refused.',
+      );
+    }
+  }
 
   for (const correction of corrections) {
     if (seenIds.has(correction.id)) {
@@ -243,6 +290,27 @@ export function applyCorrections(
       throw new CorrectionRejected(
         correction.id,
         'Correction "' + correction.id + '" was prepared for a different file. The export was refused.',
+      );
+    }
+
+    const expected = canonicalById.get(correction.id);
+    if (!expected) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Correction "' + correction.id + '" is not part of the current plan for this file. The export was refused.',
+      );
+    }
+    if (
+      expected.record !== correction.record ||
+      expected.rowIndex !== correction.rowIndex ||
+      expected.columnIndex !== correction.columnIndex ||
+      expected.before !== correction.before ||
+      expected.after !== correction.after ||
+      expected.kind !== correction.kind
+    ) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Correction "' + correction.id + '" does not match the current plan for this file. The export was refused.',
       );
     }
 
