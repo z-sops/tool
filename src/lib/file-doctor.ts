@@ -10,8 +10,21 @@ const aliases = (a: string[], choices: string[]) => a.findIndex(x => choices.map
 
 // A plain signed number: -5, +3, -5.99, -1,5, -1,234.56, +15551234567.
 const PLAIN_SIGNED_NUMBER = /^[+-]?(?:\d{1,3}(?:,\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)$/;
-// A phone / E.164 style value: +1-555-0100, +44 20 7946 0000, +1 (555) 010 0.
-const PHONE_LIKE = /^[+-]\d[\d\s().\-/]{2,}$/;
+/**
+ * A telephone number written in international form: a leading plus, then a
+ * digit, then only digits, spaces, dots and brackets, optionally followed by
+ * hyphen-separated groups of two or more digits.
+ *
+ * The hyphen rule matters. A hyphen that introduces a *group* of two or more
+ * digits ("+1-555-0100") is how telephone numbers are written. A hyphen
+ * between single digits ("+1-2") is subtraction and a slash ("+1/2") is
+ * division. Both are expressions a spreadsheet may evaluate, so the previous
+ * rule, which allowed any hyphen or slash after the first digit, is gone.
+ *
+ * The leading plus is required. A telephone number is written with a plus,
+ * while a leading minus introduces a negative number or an expression.
+ */
+const PHONE_LIKE = /^[+]\d[\d\s.()]*(-?\d{2,})*$/;
 
 /**
  * Spreadsheet formula-injection heuristic.
@@ -19,8 +32,12 @@ const PHONE_LIKE = /^[+-]\d[\d\s().\-/]{2,}$/;
  * A cell is treated as a formula risk when it can be evaluated as an expression
  * by a spreadsheet application. Sign-prefixed *values* (plain signed numbers,
  * phone/E.164 numbers) are not expressions and must not block a legitimate
- * export, while sign-prefixed *expressions* (`-1+1`, `-2+3+cmd|'/C calc'!A0`)
- * must be detected.
+ * export, while sign-prefixed *expressions* (`-1+1`, `+1-2`, `+1/2`, `-1/2`,
+ * `-2+3+cmd|'/C calc'!A0`) must be detected.
+ *
+ * A sign followed by a space is prose ("- New Arrival"), not an expression: a
+ * spreadsheet does not evaluate a leading operator that is separated from its
+ * operand, so such a value is left alone.
  */
 export function isFormulaRisk(value: string): boolean {
   const v = value.replace(/^\s+/, '');
@@ -30,7 +47,7 @@ export function isFormulaRisk(value: string): boolean {
   if (first !== '+' && first !== '-') return false;
   if (/^[+-][\s]/.test(v)) return false;           // prose such as "- New Arrival"
   if (PLAIN_SIGNED_NUMBER.test(v)) return false;   // -5, +3, +15551234567
-  if (PHONE_LIKE.test(v)) return false;             // +1-555-0100
+  if (first === '+' && PHONE_LIKE.test(v)) return false; // +1-555-0100
   return true;
 }
 
@@ -94,6 +111,15 @@ export function inspectCsv(csv: Csv): Report {
   const add = (row: number, field: string, code: string, severity: Issue['severity'], cause: Cause, detail: string) => {
     issues.push({row,field,code,severity,cause,detail});
   };
+  // Column headers are the first cells a spreadsheet evaluates, so they are
+  // scanned for the same formula risk as the data cells. The header row is
+  // physical CSV record 1. The scan only reads: no header is removed, escaped
+  // or rewritten, so the seller's file is never silently modified.
+  csv.headers.forEach((header, index) => {
+    if (!isFormulaRisk(header)) return;
+    add(1, header || 'column-' + (index + 1), 'FORMULA_RISK', 'error', 'manual-review',
+      'The column header could be evaluated as a formula by a spreadsheet. Possible spreadsheet formula; sanitize input manually.');
+  });
   csv.rows.forEach((values,i) => {
     const row = i + 2;
     if (values.every(x => !x.trim())) { add(row,'(row)','BLANK_ROW','warning','formatting','Blank data row.'); return; }

@@ -94,6 +94,27 @@ test.describe('Bulk File Doctor (browser)', () => {
     await expect(page.getByTestId('file-doctor-reviewed')).toBeDisabled();
   });
 
+  test('a signed arithmetic expression blocks the reviewed export', async ({ page }) => {
+    await upload(page, 'signed.csv', 'sku,title\nA-1,+1-2\n');
+    await expect(page.getByTestId('file-doctor-blocked')).toBeVisible();
+    await page.getByTestId('file-doctor-approve').check();
+    await expect(page.getByTestId('file-doctor-reviewed')).toBeDisabled();
+  });
+
+  test('a formula-risk column header blocks the reviewed export', async ({ page }) => {
+    await upload(page, 'header-formula.csv', 'sku,=cmd|calc\nA-1,Widget\n');
+    await expect(page.getByTestId('file-doctor-blocked')).toBeVisible();
+    await page.getByTestId('file-doctor-approve').check();
+    await expect(page.getByTestId('file-doctor-reviewed')).toBeDisabled();
+  });
+
+  test('legitimate phone numbers and signed numbers do not block the reviewed export', async ({ page }) => {
+    await upload(page, 'phones.csv', 'sku,title\nA-1,+1-555-0100\nA-2,-5\n');
+    await expect(page.getByTestId('file-doctor-blocked')).toHaveCount(0);
+    await page.getByTestId('file-doctor-approve').check();
+    await expect(page.getByTestId('file-doctor-reviewed')).toBeEnabled();
+  });
+
   test('rejects XLSX files with a clear message and uploads nothing', async ({ page }) => {
     await upload(page, 'workbook.xlsx', Buffer.from('PKfake'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     await expect(page.getByTestId('file-doctor-error')).toContainText('XLSX');
