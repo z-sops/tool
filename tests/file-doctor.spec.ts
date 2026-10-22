@@ -16,16 +16,22 @@ const upload = async (
   });
 };
 
+const colName = (i: number) => {
+  let name = '';
+  let n = i;
+  do {
+    name = String.fromCharCode(65 + (n % 26)) + name;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return name;
+};
+
 /** Builds a minimal .xlsx archive in the test process. */
-function buildXlsx(sheets: { name: string; rows: string[][]; formulas?: Record<string, string> }[]): Buffer {
+function buildXlsx(
+  sheets: { name: string; rows: string[][]; formulas?: Record<string, string> }[],
+): Buffer {
   const files: Record<string, Uint8Array> = {};
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const colName = (i: number) => {
-    let name = '';
-    let n = i;
-    do { name = String.fromCharCode(65 + (n % 26)) + name; n = Math.floor(n / 26) - 1; } while (n >= 0);
-    return name;
-  };
   sheets.forEach((sheet, index) => {
     const rows = sheet.rows
       .map((row, r) => {
@@ -62,36 +68,179 @@ function buildXlsx(sheets: { name: string; rows: string[][]; formulas?: Record<s
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+/** Records anything that could carry seller data out of the page. */
+function watchForLeaks(page: import('@playwright/test').Page) {
+  const leaks: string[] = [];
+  page.on('request', (req) => {
+    const url = req.url();
+    if (url.startsWith('blob:') || url.startsWith('data:')) return;
+    const isSameOrigin = url.startsWith('http://127.0.0.1') || url.startsWith('http://localhost');
+    const hasBody = req.method() !== 'GET' && req.method() !== 'HEAD';
+    const postData = req.postData();
+    if (!isSameOrigin || hasBody || postData) {
+      leaks.push(`${req.method()} ${url}${postData ? ' body=' + postData : ''}`);
+    }
+    if (/[?&][^=&]*(data|content|file|upload)=/i.test(url)) {
+      leaks.push('QUERY ' + url);
+    }
+  });
+  return leaks;
+}
+
 test.describe('Bulk File Doctor (browser)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/tools/amazon-bulk-file-doctor');
     await expect(page.getByRole('heading', { name: 'Amazon Bulk File Doctor' })).toBeVisible();
   });
 
-  test('analyzes a CSV entirely in the browser and shows correct counts', async ({ page }) => {
-    const duringAnalysis: string[] = [];
-    const origin = new URL(page.url()).origin;
-    let recording = false;
-    page.on('request', req => {
-      if (!recording) return;
-      const url = req.url();
-      if (url.startsWith('blob:') || url.startsWith('data:')) return;
-      // The application's own lazy chunks may be fetched from the same origin.
-      // What must never happen is a request to another origin, or any request
-      // that carries a body.
-      if (!url.startsWith(origin) || (req.method() !== 'GET' && req.method() !== 'HEAD')) {
-        duringAnalysis.push(`${req.method()} ${url}`);
-      }
-    });
+  /* ---------------- C5: privacy network integrity ---------------- */
 
+  test('does not transmit the uploaded file to the server or a third party', async ({ page }) => {
+    // The recorder is installed before the upload is even dispatched.
+    const leaks = watchForLeaks(page);
     await upload(page, 'listings.csv', CSV_OK);
-    recording = true;
     await page.getByTestId('stat-csv-rows').waitFor();
+    await expect(page.getByTestId('stat-csv-rows')).toHaveText('2');
+    expect(leaks, 'no request may carry seller data').toEqual([]);
+  });
+
+  test('does not put the file content in a request body or a query string', async ({ page }) => {
+    const bodies: string[] = [];
+    const urls: string[] = [];
+    page.on('request', (req) => {
+      const data = req.postData();
+      if (data) bodies.push(data);
+      urls.push(req.url());
+    });
+    await upload(page, 'listings.csv', 'sku,item-name\nSYNTHETIC-SELLER-SKU-1,Widget\n');
+    await page.getByTestId('stat-csv-rows').waitFor();
+    await expect(page.getByTestId('stat-csv-rows')).toHaveText('1');
+    expect(bodies.join('\n')).not.toContain('SYNTHETIC-SELLER-SKU-1');
+    expect(urls.join('\n')).not.toContain('SYNTHETIC-SELLER-SKU-1');
+  });
+
+  test('privacy detector catches a deliberate synthetic leak (negative control)', async ({ page }) => {
+    const leaks = watchForLeaks(page);
+    // A deliberate, synthetic leak. If the detector cannot see this, every
+    // other privacy assertion in this file would be worthless.
+    await page.evaluate(() => {
+      void fetch('/api/synthetic-leak?data=' + encodeURIComponent('SYNTHETIC-SECRET-VALUE'));
+    });
+    await page.waitForTimeout(500);
+    expect(leaks.some((l) => l.includes('SYNTHETIC-SECRET-VALUE'))).toBe(true);
+  });
+
+  /* ---------------- C1: lossless export ---------------- */
+
+  test('a workbook with more rows than the reader limit refuses the export', async ({ page }) => {
+    const rows: string[][] = [['seller-sku', 'item-name']];
+    for (let i = 0; i < 5001; i++) rows.push(['SKU-' + i, 'Item ' + i]);
+    await upload(page, 'big.xlsx', buildXlsx([{ name: 'Big', rows }]), XLSX_MIME);
+    await expect(page.getByTestId('file-doctor-truncation')).toBeVisible();
+    await expect(page.getByTestId('file-doctor-export-reason')).toContainText('silently lose data');
+    await expect(page.getByTestId('file-doctor-reviewed')).toBeDisabled();
+  });
+
+  test('a workbook export is labelled a derived export that is not the template', async ({ page }) => {
+    await upload(
+      page,
+      'workbook.xlsx',
+      buildXlsx([
+        { name: 'Listings', rows: [['seller-sku', 'item-name'], ['A-1', 'Widget']] },
+        { name: 'Second', rows: [['seller-sku', 'item-name'], ['A-2', 'Gadget']] },
+      ]),
+      XLSX_MIME,
+    );
+    const caveats = page.getByTestId('file-doctor-export-caveats');
+    await expect(caveats).toContainText('derived CSV of the worksheet');
+    await expect(caveats).toContainText('Amazon template structure of the workbook is not preserved');
+    await expect(caveats).toContainText('1 other worksheet(s)');
+  });
+
+  test('an export keeps the instruction rows that sit above the header', async ({ page }) => {
+    const csv = 'Amazon category listing template\r\nFill in the yellow cells\r\nseller-sku,item-name\r\nA-1,  Widget  \r\n';
+    await upload(page, 'template.csv', csv);
+    await expect(page.getByTestId('file-doctor-header-note')).toContainText('source row 3');
+    await page.getByTestId('file-doctor-approve').check();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('file-doctor-reviewed').click(),
+    ]);
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const c of stream) chunks.push(c as Buffer);
+    const text = Buffer.concat(chunks).toString('utf8');
+    expect(text).toContain('Amazon category listing template');
+    expect(text).toContain('Fill in the yellow cells');
+    expect(text).toContain('seller-sku,item-name');
+    expect(text).toContain('A-1,Widget');
+  });
+
+  test('the original file downloads byte for byte', async ({ page }) => {
+    const original = 'seller-sku,item-name\r\nA-1,  Widget  \r\nA-2,"Quoted, value"\r\n';
+    await upload(page, 'original.csv', original);
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('file-doctor-original').click(),
+    ]);
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const c of stream) chunks.push(c as Buffer);
+    expect(Buffer.concat(chunks).toString('utf8')).toBe(original);
+  });
+
+  /* ---------------- C4: upload race ---------------- */
+
+  test('the last file selected is the file that stays on screen', async ({ page }) => {
+    const many = ['sku,item-name'];
+    for (let i = 0; i < 4000; i++) many.push('SLOW-SKU-' + i + ',Item ' + i);
+    const slow = many.join('\r\n') + '\r\n';
+    const fast = 'sku,item-name\nFAST-SKU-1,Widget\n';
+
+    await upload(page, 'slow.csv', slow);
+    await upload(page, 'fast.csv', fast);
+
+    await expect(page.getByTestId('stat-csv-rows')).toHaveText('1');
+    // The newer file wins, and the slower one never overwrites it.
+    await expect(page.getByTestId('file-doctor-issues')).not.toContainText('SLOW-SKU');
+  });
+
+  /* ---------------- existing behaviour ---------------- */
+
+  test('analyzes a CSV entirely in the browser and shows correct counts', async ({ page }) => {
+    await upload(page, 'listings.csv', CSV_OK);
     await expect(page.getByTestId('stat-csv-rows')).toHaveText('2');
     await expect(page.getByTestId('stat-affected-rows')).toHaveText('0');
     await expect(page.getByTestId('stat-errors')).toHaveText('0');
     await expect(page.getByTestId('stat-warnings')).toHaveText('0');
-    expect(duringAnalysis, 'no network request while the CSV is analysed').toEqual([]);
+    await expect(page.getByTestId('file-doctor-groups')).toContainText('No preliminary issues detected');
+  });
+
+  test('counts rows, issues and root-cause groups accurately', async ({ page }) => {
+    await upload(page, 'issues.csv', 'sku,title,price\nA-1,,10.00\nA-1,,nope\n,Missing,5.00\n');
+    await expect(page.getByTestId('stat-csv-rows')).toHaveText('3');
+    await expect(page.getByTestId('stat-errors')).toHaveText('3');
+    await expect(page.getByTestId('stat-warnings')).toHaveText('2');
+    await expect(page.getByTestId('stat-affected-rows')).toHaveText('3');
+    await expect(page.getByTestId('file-doctor-groups')).toContainText('missing information');
+    await expect(page.getByTestId('file-doctor-groups')).toContainText('duplicate data');
+  });
+
+  test('downloads the full JSON issue report', async ({ page }) => {
+    await upload(page, 'report.csv', 'sku,title\nA-1,,x\n');
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('file-doctor-json').click(),
+    ]);
+    expect(download.suggestedFilename()).toBe('report-issues.json');
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const c of stream) chunks.push(c as Buffer);
+    const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    expect(parsed.rows).toBe(1);
+    expect(Array.isArray(parsed.issues)).toBe(true);
+    expect(parsed.issues.length).toBeGreaterThan(0);
+    expect(parsed.exportPlan).toBeDefined();
   });
 
   test('identifies the template and maps the seller roles', async ({ page }) => {
@@ -128,30 +277,6 @@ test.describe('Bulk File Doctor (browser)', () => {
     await page.getByTestId('file-doctor-sheet').selectOption({ index: 1 });
     await expect(page.getByTestId('stat-csv-rows')).toHaveText('1');
     await expect(page.getByTestId('file-doctor-template')).toContainText('Amazon flat-file upload');
-  });
-
-  test('does not transmit an uploaded workbook to the server', async ({ page }) => {
-    const duringAnalysis: string[] = [];
-    const bodies: string[] = [];
-    const origin = new URL(page.url()).origin;
-    let recording = false;
-    page.on('request', req => {
-      if (!recording) return;
-      const url = req.url();
-      if (url.startsWith('blob:') || url.startsWith('data:')) return;
-      if (!url.startsWith(origin) || (req.method() !== 'GET' && req.method() !== 'HEAD')) {
-        duringAnalysis.push(`${req.method()} ${url}`);
-      }
-      const data = req.postData();
-      if (data) bodies.push(data);
-    });
-    const bytes = buildXlsx([{ name: 'S', rows: [['seller-sku', 'item-name'], ['A-1', 'Widget']] }]);
-    await upload(page, 'workbook.xlsx', bytes, XLSX_MIME);
-    recording = true;
-    await page.getByTestId('stat-csv-rows').waitFor();
-    expect(duringAnalysis, 'no request to another origin and no request with a body').toEqual([]);
-    // The file contents must not appear in any request body.
-    expect(bodies.join('\n')).not.toContain('A-1');
   });
 
   test('blocks the export when a cell holds an Excel formula with no stored value', async ({ page }) => {
@@ -202,8 +327,6 @@ test.describe('Bulk File Doctor (browser)', () => {
 
   test('reads a tab-delimited Amazon Processing Report and matches it to the file rows', async ({ page }) => {
     await upload(page, 'listings.csv', 'seller-sku,item-name\nDEMO-SKU-001,Widget\nDEMO-SKU-002,Gadget\n');
-    // Layout per Amazon Seller University troubleshooting guidance: SKU in column
-    // B, error code in column C, error description in column E.
     const report = [
       'Feed Type\tSKU\tError Code\tError Description\tComment',
       'Flat File\tDEMO-SKU-001\t90220\tValue is not valid for this category\tCheck the product type',
@@ -217,13 +340,9 @@ test.describe('Bulk File Doctor (browser)', () => {
     const groups = page.getByTestId('file-doctor-amazon-group');
     await expect(groups.first()).toBeVisible();
     await expect(groups).toHaveCount(2);
-    // Both reported codes are surfaced, each with its own root-cause group.
     const panel = page.getByTestId('file-doctor-amazon-errors');
     await expect(panel).toContainText('90220');
     await expect(panel).toContainText('8058');
-    await expect(groups.first()).toContainText('affected row(s)');
-    // The SKU that exists in the file is matched to its row, the one that is
-    // not in the file is reported without a row.
     await expect(panel).toContainText('DEMO-SKU-001');
     await expect(panel).toContainText('DEMO-SKU-009');
   });
@@ -251,6 +370,26 @@ test.describe('Bulk File Doctor (browser)', () => {
     expect(download.suggestedFilename()).toBe('approve-corrected.csv');
   });
 
+  test('applies only the corrections the user selected', async ({ page }) => {
+    await upload(page, 'partial.csv', 'seller-sku,item-name,description\n A-1 ,  Widget  ,  Text  \n');
+    await page.getByTestId('file-doctor-approve').check();
+    const rows = page.getByTestId('file-doctor-correction-row');
+    await expect(rows).toHaveCount(2);
+    await rows.nth(1).locator('input[type=checkbox]').uncheck();
+    await expect(page.getByTestId('file-doctor-reviewed')).toContainText('1 approved');
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('file-doctor-reviewed').click(),
+    ]);
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const c of stream) chunks.push(c as Buffer);
+    const text = Buffer.concat(chunks).toString('utf8');
+    // The title was approved and trimmed; the description was not, and the
+    // identifier column is never touched.
+    expect(text).toContain(' A-1 ,Widget,  Text  ');
+  });
+
   test('never alters an identifier column', async ({ page }) => {
     await upload(page, 'identifier.csv', 'seller-sku,item-name\n  A-1  ,Widget\n');
     await page.getByTestId('file-doctor-approve').check();
@@ -263,17 +402,6 @@ test.describe('Bulk File Doctor (browser)', () => {
     for await (const c of stream) chunks.push(c as Buffer);
     const text = Buffer.concat(chunks).toString('utf8');
     expect(text).toContain('  A-1  ');
-  });
-
-  test('offers the original file unchanged for download', async ({ page }) => {
-    const original = 'sku,item-name\nA-1,Widget\n';
-    await upload(page, 'original.csv', original);
-    await expect(page.getByTestId('file-doctor-original')).toBeVisible();
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      page.getByTestId('file-doctor-original').click(),
-    ]);
-    expect(download.suggestedFilename()).toBe('original.csv');
   });
 
   test('malformed rows block the corrected export', async ({ page }) => {

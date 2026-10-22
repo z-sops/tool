@@ -14,8 +14,14 @@
  */
 
 import { textProcessingReportAdapter } from './text-processing-report';
+import {
+  MAX_REPORT_MESSAGE_CHARS,
+  MAX_REPORT_RECORDS,
+} from './limits';
 
 export type ErrorOrigin = 'source-file' | 'amazon-reported';
+
+export { MAX_REPORT_BYTES, MAX_REPORT_RECORDS, MAX_REPORT_RECORD_CHARS, MAX_REPORT_MESSAGE_CHARS } from './limits';
 
 export interface AmazonReportedError {
   /**
@@ -121,6 +127,16 @@ export interface UnmatchedError {
   reason: 'no-sku-in-report' | 'sku-not-in-source-file';
 }
 
+export interface SkuMatchResult {
+  matches: SkuErrorMatch[];
+  unmatched: UnmatchedError[];
+  /**
+   * The physical source rows each reported error maps to, keyed by the error.
+   * Empty for an error that could not be matched.
+   */
+  rowsByError: Map<string, number[]>;
+}
+
 /**
  * Matches reported errors to the rows of the source file by SKU.
  *
@@ -131,7 +147,8 @@ export function matchErrorsToSource(
   errors: AmazonReportedError[],
   skuColumnIndex: number,
   sourceRows: string[][],
-): { matches: SkuErrorMatch[]; unmatched: UnmatchedError[] } {
+  physicalRecords?: number[],
+): SkuMatchResult {
   const rowBySku = new Map<string, number[]>();
   sourceRows.forEach((row, index) => {
     const raw = row[skuColumnIndex];
@@ -139,7 +156,9 @@ export function matchErrorsToSource(
     const sku = raw.trim().toLowerCase();
     if (!sku) return;
     const rows = rowBySku.get(sku) ?? [];
-    rows.push(index + 2);
+    // The physical record of the source, which is not the normalised index
+    // when the source has instruction rows above its header.
+    rows.push(physicalRecords ? physicalRecords[index] : index + 2);
     rowBySku.set(sku, rows);
   });
 
@@ -158,17 +177,19 @@ export function matchErrorsToSource(
   }
 
   const matches: SkuErrorMatch[] = [];
+  const rowsByError = new Map<string, number[]>();
   for (const [sku, skuErrors] of bySku) {
     const rows = rowBySku.get(sku);
     if (!rows || !rows.length) {
       for (const error of skuErrors) unmatched.push({ error, reason: 'sku-not-in-source-file' });
       continue;
     }
+    for (const error of skuErrors) rowsByError.set(errorKey(error), rows);
     matches.push({ sku: errorSkuLabel(skuErrors, sku), rows, errors: skuErrors });
   }
 
   matches.sort((a, b) => a.rows[0] - b.rows[0]);
-  return { matches, unmatched };
+  return { matches, unmatched, rowsByError };
 }
 
 function errorSkuLabel(errors: AmazonReportedError[], fallback: string): string {
@@ -392,6 +413,11 @@ export const jsonProcessingReportAdapter: AmazonReportAdapter = {
     }
 
     if (!records) return null;
+    if (records.length > MAX_REPORT_RECORDS) {
+      throw new Error(
+        'This processing report contains ' + records.length + ' records, more than the ' + MAX_REPORT_RECORDS + ' that can be read. It was not used.',
+      );
+    }
 
     const errors: AmazonReportedError[] = [];
     for (const record of records) {
@@ -400,6 +426,11 @@ export const jsonProcessingReportAdapter: AmazonReportAdapter = {
       const message =
         asString(r.message) ?? asString(r.errorMessage) ?? asString(r.error) ?? asString(r.description);
       if (!message) continue;
+      if (message.length > MAX_REPORT_MESSAGE_CHARS) {
+        throw new Error(
+          'This processing report contains an error message longer than ' + MAX_REPORT_MESSAGE_CHARS + ' characters. It was not used.',
+        );
+      }
       errors.push({
         errorCode: asString(r.errorCode) ?? asString(r.code) ?? asString(r.error_code),
         message,

@@ -10,17 +10,39 @@ const aliases = (a: string[], choices: string[]) => a.findIndex(x => choices.map
 
 // A plain signed number: -5, +3, -5.99, -1,5, -1,234.56, +15551234567.
 const PLAIN_SIGNED_NUMBER = /^[+-]?(?:\d{1,3}(?:,\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)$/;
-// A phone / E.164 style value: +1-555-0100, +44 20 7946 0000, +1 (555) 010 0.
-const PHONE_LIKE = /^[+-]\d[\d\s().\-/]{2,}$/;
+
+/**
+ * A telephone number written in international form: a leading plus, then a
+ * digit, then only digits, spaces, dots, brackets and hyphens.
+ *
+ * The hyphen rule matters. A hyphen that introduces a *group* of two or more
+ * digits ("+1-555-0100") is how phone numbers are written. A hyphen between
+ * single digits ("+1-2") is an arithmetic expression, and a slash ("+1/2")
+ * is division. Both must be treated as expressions, so the old permissive
+ * rule that allowed any hyphen or slash after the first digit is gone.
+ */
+const PHONE_LIKE = /^[+]\d[\d\s.()]*(-?\d{2,})*$/;
+
+/**
+ * A signed value that is neither a plain number nor a telephone number is an
+ * ambiguous expression and is treated conservatively as a formula risk.
+ */
 
 /**
  * Spreadsheet formula-injection heuristic.
  *
- * A cell is treated as a formula risk when it can be evaluated as an expression
- * by a spreadsheet application. Sign-prefixed *values* (plain signed numbers,
- * phone/E.164 numbers) are not expressions and must not block a legitimate
- * export, while sign-prefixed *expressions* (`-1+1`, `-2+3+cmd|'/C calc'!A0`)
- * must be detected.
+ * A cell is treated as a formula risk when a spreadsheet application could
+ * evaluate it as an expression. Sign-prefixed *values* (plain signed numbers,
+ * telephone numbers) are not expressions and must not block a legitimate
+ * export, while sign-prefixed *expressions* ("-1+1", "+1-2", "-1/2",
+ * "-2+3+cmd|'/C calc'!A0") must be detected.
+ *
+ * SPREADSHEET BEHAVIOUR IS NOT UNIFORM. Whether a leading "=", "+" or "@" is
+ * evaluated, and whether a formula is shown or executed, differs between
+ * spreadsheet programs, their versions and their security settings. This tool
+ * therefore assumes the worst case: anything that could be read as an
+ * expression is refused, and the refusal is reported to the user rather than
+ * silently rewritten.
  */
 export function isFormulaRisk(value: string): boolean {
   const v = value.replace(/^\s+/, '');
@@ -30,8 +52,20 @@ export function isFormulaRisk(value: string): boolean {
   if (first !== '+' && first !== '-') return false;
   if (/^[+-][\s]/.test(v)) return false;           // prose such as "- New Arrival"
   if (PLAIN_SIGNED_NUMBER.test(v)) return false;   // -5, +3, +15551234567
-  if (PHONE_LIKE.test(v)) return false;             // +1-555-0100
+  if (first === '+' && PHONE_LIKE.test(v)) return false; // +1-555-0100
   return true;
+}
+
+/**
+ * Why a value was classified as a formula risk, for the report the user sees.
+ */
+export function formulaRiskReason(value: string): string {
+  const v = value.replace(/^\s+/, '');
+  if (v.startsWith('=')) return 'The value starts with "=" and a spreadsheet may evaluate it as a formula.';
+  if (v.startsWith('@')) return 'The value starts with "@" and a spreadsheet may evaluate it as a formula.';
+  if (PLAIN_SIGNED_NUMBER.test(v)) return '';
+  if (v.startsWith('+') && PHONE_LIKE.test(v)) return '';
+  return 'The value starts with "+" or "-" and is not a plain number or a telephone number, so a spreadsheet may evaluate it as an expression.';
 }
 
 export function parseCsv(input: string): Csv {
@@ -73,11 +107,36 @@ export function parseCsv(input: string): Csv {
   return { headers: all[0], rows: all.slice(1) };
 }
 
-export function serializeCsv(doc: Csv): string {
-  const quote = (s: string) => /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-  return [doc.headers, ...doc.rows].map(row => row.map(quote).join(',')).join('\r\n') + '\r\n';
+const quoteCell = (s: string) => /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+
+/**
+ * Serialises records exactly as they are, preserving their order and their
+ * column count. Used to write an export that keeps every record of the source,
+ * including instruction rows above the header.
+ */
+export function serializeRecords(records: string[][]): string {
+  return records.map(row => row.map(quoteCell).join(',')).join('\r\n') + (records.length ? '\r\n' : '');
 }
-export function inspectCsv(csv: Csv): Report {
+
+export function serializeCsv(doc: Csv): string {
+  return serializeRecords([doc.headers, ...doc.rows]);
+}
+/**
+ * How the analysed table maps back to the physical source document.
+ *
+ * `firstDataRecord` is the 1-based physical record number of the first data
+ * row. It is 2 for a plain file whose first record is the header, and larger
+ * when the source has instruction rows above the header. `recordOf` optionally
+ * overrides the number for individual rows.
+ */
+export interface InspectOptions {
+  firstDataRecord?: number;
+  recordOf?: number[];
+}
+
+export function inspectCsv(csv: Csv, options: InspectOptions = {}): Report {
+  const firstDataRecord = options.firstDataRecord ?? 2;
+  const recordOf = options.recordOf;
   const sku = aliases(csv.headers, ['sku','seller-sku','item-sku']);
   const title = aliases(csv.headers, ['title','item-name','product-name','product-title']);
   const price = aliases(csv.headers, ['price','standard-price','your-price']);
@@ -95,8 +154,23 @@ export function inspectCsv(csv: Csv): Report {
   const add = (row: number, field: string, code: string, severity: Issue['severity'], cause: Cause, detail: string) => {
     issues.push({row,field,code,severity,cause,detail});
   };
+
+  // Column headers are the first cells a spreadsheet evaluates, so they are
+  // scanned for the same formula risk as the data cells.
+  csv.headers.forEach((header, index) => {
+    if (!isFormulaRisk(header)) return;
+    add(
+      firstDataRecord - 1,
+      header || 'column-' + (index + 1),
+      'FORMULA_RISK',
+      'error',
+      'manual-review',
+      'The column header could be evaluated as a formula by a spreadsheet. ' + formulaRiskReason(header),
+    );
+  });
+
   csv.rows.forEach((values,i) => {
-    const row = i + 2;
+    const row = recordOf ? recordOf[i] : firstDataRecord + i;
     if (values.every(x => !x.trim())) { add(row,'(row)','BLANK_ROW','warning','formatting','Blank data row.'); return; }
     if (values.length !== csv.headers.length) add(row,'(row)','ROW_WIDTH','error','formatting','Column count does not match header.');
     if (sku >= 0) {
@@ -121,7 +195,7 @@ export function inspectCsv(csv: Csv): Report {
     values.forEach((v,col) => {
       const field = csv.headers[col] || 'extra-column-' + (col+1);
       if (v.trim() !== v) add(row,field,'EDGE_WHITESPACE','warning','formatting','Leading/trailing spaces detected.');
-      if (isFormulaRisk(v)) add(row,field,'FORMULA_RISK','error','manual-review','Possible spreadsheet formula; sanitize input manually.');
+      if (isFormulaRisk(v)) add(row,field,'FORMULA_RISK','error','manual-review',formulaRiskReason(v) || 'Possible spreadsheet formula; sanitize input manually.');
     });
   });
   const counts = new Map<Cause,number>();

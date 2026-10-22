@@ -16,6 +16,11 @@
  */
 
 import type { AmazonProcessingReport, AmazonReportAdapter, AmazonReportedError } from './amazon-errors';
+import {
+  MAX_REPORT_MESSAGE_CHARS,
+  MAX_REPORT_RECORD_CHARS,
+  MAX_REPORT_RECORDS,
+} from './limits';
 
 const isBlank = (value: string) => value.trim().length === 0;
 
@@ -99,6 +104,18 @@ export const textProcessingReportAdapter: AmazonReportAdapter = {
 
     const lines = text.split(/\r\n|\n|\r/).filter((line) => !isBlank(line));
     if (!lines.length) return null;
+    if (lines.length > MAX_REPORT_RECORDS) {
+      throw new Error(
+        'This processing report contains ' + lines.length + ' records, more than the ' + MAX_REPORT_RECORDS + ' that can be read. It was not used.',
+      );
+    }
+    for (const line of lines) {
+      if (line.length > MAX_REPORT_RECORD_CHARS) {
+        throw new Error(
+          'This processing report contains a record larger than ' + MAX_REPORT_RECORD_CHARS + ' characters. It was not used.',
+        );
+      }
+    }
 
     const delimiter = detectDelimiter(lines);
     const rows = lines.map((line) => splitDelimited(line, delimiter));
@@ -136,6 +153,11 @@ export const textProcessingReportAdapter: AmazonReportAdapter = {
       const column = columnIndex !== undefined ? (row[columnIndex] ?? '').trim() : '';
       if (!sku && !code && !message) continue;
       if (!message && !code) continue;
+      if (message.length > MAX_REPORT_MESSAGE_CHARS) {
+        throw new Error(
+          'This processing report contains an error message longer than ' + MAX_REPORT_MESSAGE_CHARS + ' characters. It was not used.',
+        );
+      }
       errors.push({
         errorCode: code || null,
         message: message || code || 'Reported without a description.',

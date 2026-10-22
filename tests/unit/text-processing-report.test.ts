@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { splitDelimited, textProcessingReportAdapter } from '../../src/lib/bulk/text-processing-report';
-import { parseAmazonReport } from '../../src/lib/bulk/amazon-errors';
+import {
+  parseAmazonReport,
+  MAX_REPORT_RECORDS,
+  MAX_REPORT_RECORD_CHARS,
+  MAX_REPORT_MESSAGE_CHARS,
+} from '../../src/lib/bulk/amazon-errors';
 
 /**
  * The layout used here follows Amazon's Seller University troubleshooting
@@ -65,5 +70,84 @@ describe('Amazon Processing Report parser', () => {
   it('returns null for a document with no errors', () => {
     expect(parseAmazonReport('Feed Type\tSKU\tError Code\tError Description\tComment\n')).toBeNull();
     expect(parseAmazonReport('')).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* C6: processing report resource limits                                */
+/* ------------------------------------------------------------------ */
+
+describe('processing report limits', () => {
+  it('refuses a report with more records than the limit', () => {
+    const lines = ['SKU\tError Code\tError Message'];
+    for (let i = 0; i < MAX_REPORT_RECORDS + 5; i++) {
+      lines.push('SKU-' + i + '\t90220\tsomething went wrong');
+    }
+    expect(() => parseAmazonReport(lines.join('\n'))).toThrow(/more than the/);
+  });
+
+  it('refuses a record larger than the limit', () => {
+    const huge = 'x'.repeat(MAX_REPORT_RECORD_CHARS + 10);
+    const report = 'SKU\tError Code\tError Message\nA-1\t90220\t' + huge;
+    expect(() => parseAmazonReport(report)).toThrow(/larger than/);
+  });
+
+  it('refuses an error message longer than the limit', () => {
+    const long = 'y'.repeat(MAX_REPORT_MESSAGE_CHARS + 10);
+    const report = 'SKU\tError Code\tError Message\nA-1\t90220\t' + long;
+    expect(() => parseAmazonReport(report)).toThrow(/longer than/);
+  });
+
+  it('refuses a JSON report with more records than the limit', () => {
+    const many = { errors: Array.from({ length: MAX_REPORT_RECORDS + 1 }, (_, i) => ({ message: 'error ' + i })) };
+    expect(() => parseAmazonReport(many)).toThrow(/more than the/);
+  });
+
+  it('handles a report with a byte order mark', () => {
+    const report = '\uFEFFSKU\tError Code\tError Message\nA-1\t90220\tValue is not valid';
+    const parsed = parseAmazonReport(report);
+    expect(parsed?.errors).toHaveLength(1);
+    expect(parsed?.errors[0].sku).toBe('A-1');
+  });
+
+  it('handles a report with quoted fields', () => {
+    const report = 'SKU\tError Code\tError Message\n"A-1"\t90220\t"Value is not valid, and contains a comma"';
+    const parsed = parseAmazonReport(report);
+    expect(parsed?.errors).toHaveLength(1);
+    expect(parsed?.errors[0].message).toBe('Value is not valid, and contains a comma');
+  });
+
+  it('ignores empty records', () => {
+    const report = 'SKU\tError Code\tError Message\n\nA-1\t90220\tValue is not valid\n\n';
+    const parsed = parseAmazonReport(report);
+    expect(parsed?.errors).toHaveLength(1);
+  });
+
+  it('handles a report where the SKU is missing', () => {
+    const report = 'SKU\tError Code\tError Message\n\t90220\tValue is not valid';
+    const parsed = parseAmazonReport(report);
+    expect(parsed?.errors).toHaveLength(1);
+    expect(parsed?.errors[0].sku).toBeNull();
+    expect(parsed?.errors[0].errorCode).toBe('90220');
+  });
+
+  it('keeps duplicate SKU entries as separate errors', () => {
+    const report = 'SKU\tError Code\tError Message\nA-1\t90220\tFirst\nA-1\t90220\tSecond';
+    const parsed = parseAmazonReport(report);
+    expect(parsed?.errors).toHaveLength(2);
+    expect(parsed?.errors.map((e) => e.message)).toEqual(['First', 'Second']);
+  });
+
+  it('handles a report with a comma delimited layout', () => {
+    const report = 'SKU,Error Code,Error Message\nA-1,90220,Value is not valid';
+    const parsed = parseAmazonReport(report);
+    expect(parsed?.errors).toHaveLength(1);
+    expect(parsed?.errors[0].errorCode).toBe('90220');
+  });
+
+  it('does not invent a code for a report that has none', () => {
+    const report = 'SKU\tError Code\tError Message\nA-1\t\tSomething was reported';
+    const parsed = parseAmazonReport(report);
+    expect(parsed?.errors[0].errorCode).toBeNull();
   });
 });

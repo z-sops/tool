@@ -1,26 +1,32 @@
 /**
- * Safe correction workflow (ListingAI M1b, task D).
+ * Safe correction engine (ListingAI M1b corrections C2).
  *
- * Pipeline: original -> analysis -> proposed fix -> before/after diff ->
- * user approval -> corrected export.
+ * Workflow: original -> analysis -> proposed fix -> before/after diff -> user
+ * approval -> corrected export.
  *
- * Rules enforced in code, not only in the interface:
- * - A correction is never applied automatically. Every proposed correction
- *   must be selected by the user before it is exported.
- * - Corrections are deterministic and reversible: each one records the exact
- *   "before" value, and `revertCorrections` restores the original.
- * - Identifiers (SKU, parent SKU, variation values, price, quantity) are
- *   never modified.
- * - No product attribute is invented. Only whitespace and line endings that
- *   the user's own file contains are normalised.
- * - No row is ever added or removed, and no column is ever dropped.
- * - Nothing is published anywhere.
+ * The application layer enforces every rule itself. A correction object
+ * handed in by a caller is treated as untrusted input: it is re-checked
+ * against the actual source before it is applied, and anything that does not
+ * match is refused with an actionable error rather than skipped.
+ *
+ * Enforced here:
+ *  - Only eligible text fields can be modified.
+ *  - SKU, parent SKU, identifiers, variation attributes, product type, brand,
+ *    category, price and quantity are protected.
+ *  - Every correction must reference a record and a column that exist.
+ *  - The "before" value must still match the actual source.
+ *  - The "after" value must be one of the explicitly supported transformations
+ *    of the "before" value.
+ *  - Every applied correction must be approved by the user.
+ *  - Duplicate, stale, forged, out-of-bounds or conflicting corrections are
+ *    refused.
  */
+
+import type { AnalyzedTable } from './source';
 
 export type CorrectionKind =
   | 'trim-leading-trailing-whitespace'
-  | 'normalise-line-endings'
-  | 'collapse-internal-line-breaks';
+  | 'normalise-line-endings';
 
 /** Roles whose values may be trimmed after explicit approval. */
 export const CORRECTABLE_ROLES = ['title', 'description', 'bulletPoints'] as const;
@@ -41,8 +47,16 @@ export const PROTECTED_ROLES = [
 
 export interface ProposedCorrection {
   id: string;
-  /** 1-based row number in the source document (row 1 is the header). */
-  row: number;
+  /**
+   * The fingerprint of the document the correction was prepared for. A
+   * correction prepared for another file is refused.
+   */
+  documentId: string;
+  /** 1-based physical record number in the source document. */
+  record: number;
+  /** 0-based index into the analysed rows. */
+  rowIndex: number;
+  /** 0-based index into the analysed columns. */
   columnIndex: number;
   column: string;
   role: string;
@@ -55,7 +69,7 @@ export interface ProposedCorrection {
 }
 
 export interface SkippedCorrection {
-  row: number;
+  record: number;
   column: string;
   reason: string;
 }
@@ -76,17 +90,15 @@ export interface CorrectionPlan {
   safety: CorrectionSafety;
 }
 
-export interface CorrectionApproval {
-  id: string;
-  approved: boolean;
-}
-
 export const CORRECTION_SAFETY_NOTE =
   'Only whitespace and line endings inside columns you approved are changed. ' +
   'No row is added or removed, no column is dropped, and no identifier, price, ' +
-  'quantity or variation value is altered.';
+  'quantity, brand, product type or variation value is altered.';
 
-/** Normalises the line endings inside a cell without touching its content. */
+/* ------------------------------------------------------------------ */
+/* The supported transformations                                        */
+/* ------------------------------------------------------------------ */
+
 const normaliseLineEndings = (value: string): string => value.replace(/\r\n?/g, '\n');
 
 const trimEdges = (value: string): string => value.replace(/^[^\S\n]+|[^\S\n]+$/g, '');
@@ -94,57 +106,75 @@ const trimEdges = (value: string): string => value.replace(/^[^\S\n]+|[^\S\n]+$/
 const isTrimmable = (value: string): boolean => value !== value.replace(/^[ \t]+|[ \t]+$/g, '');
 
 /**
- * Builds the correction plan for a document. `columnRoles` maps a column index
- * to the semantic role that was detected for it. Columns whose role is not in
- * CORRECTIBLE_ROLES are listed as skipped so the user can see that they were
+ * The only two transformations a correction may perform. `applyCorrections`
+ * recomputes the expected result and compares it with the proposed value, so a
+ * forged "after" value is refused.
+ */
+export function supportedTransform(value: string): { value: string; kind: CorrectionKind } | null {
+  const afterLineEndings = normaliseLineEndings(value);
+  const trimmed = trimEdges(afterLineEndings);
+  if (trimmed === value) return null;
+  const kind: CorrectionKind =
+    afterLineEndings !== value && trimEdges(afterLineEndings) === afterLineEndings
+      ? 'normalise-line-endings'
+      : 'trim-leading-trailing-whitespace';
+  return { value: trimmed, kind };
+}
+
+/* ------------------------------------------------------------------ */
+/* Planning                                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Builds the correction plan for a table. `columnRoles` maps a column index to
+ * the semantic role that was detected for it. Columns whose role is not
+ * correctable are listed as skipped so the user can see that they were
  * considered and deliberately left alone.
  */
 export function planCorrections(
-  headers: string[],
-  rows: string[][],
+  table: AnalyzedTable,
   columnRoles: Record<number, string>,
 ): CorrectionPlan {
   const corrections: ProposedCorrection[] = [];
   const skipped: SkippedCorrection[] = [];
 
-  rows.forEach((row, rowIndex) => {
+  table.rows.forEach((row, rowIndex) => {
     row.forEach((value, columnIndex) => {
-      const column = headers[columnIndex] ?? `column-${columnIndex + 1}`;
+      const column = table.headers[columnIndex] ?? 'column-' + (columnIndex + 1);
       const role = columnRoles[columnIndex] ?? 'unknown';
+      const record = table.physicalRecords[rowIndex] ?? rowIndex + 2;
 
       if (!(CORRECTABLE_ROLES as readonly string[]).includes(role)) {
         if (isTrimmable(value)) {
           skipped.push({
-            row: rowIndex + 2,
+            record,
             column,
             reason: (PROTECTED_ROLES as readonly string[]).includes(role)
-              ? 'This column holds an identifier, price, quantity or relationship value and is never altered.'
+              ? 'This column holds an identifier, price, quantity, brand, product type or relationship value and is never altered.'
               : 'Only title, description and bullet columns are eligible for trimming.',
           });
         }
         return;
       }
 
-      const afterLineEndings = normaliseLineEndings(value);
-      const after = trimEdges(afterLineEndings);
-      if (after === value) return;
-
-      const kind: CorrectionKind =
-        afterLineEndings !== value && trimEdges(afterLineEndings) === afterLineEndings
-          ? 'normalise-line-endings'
-          : 'trim-leading-trailing-whitespace';
+      const transform = supportedTransform(value);
+      if (!transform) return;
 
       corrections.push({
-        id: `r${rowIndex + 2}c${columnIndex}`,
-        row: rowIndex + 2,
+        // The identifier carries the document fingerprint, so an identifier
+        // from one file can never authorise a correction in another.
+        id: 'd' + table.documentId + '-r' + record + 'c' + columnIndex,
+        documentId: table.documentId,
+        record,
+        rowIndex,
         columnIndex,
         column,
         role,
         before: value,
-        after,
-        kind,
+        after: transform.value,
+        kind: transform.kind,
         rationale:
-          kind === 'normalise-line-endings'
+          transform.kind === 'normalise-line-endings'
             ? 'Windows line endings inside the cell were normalised to a single line feed.'
             : 'Leading and trailing whitespace was removed.',
         reversible: true,
@@ -167,54 +197,162 @@ export function planCorrections(
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Application, with independent enforcement                            */
+/* ------------------------------------------------------------------ */
+
+export class CorrectionRejected extends Error {
+  readonly correctionId: string | null;
+  constructor(correctionId: string | null, message: string) {
+    super(message);
+    this.name = 'CorrectionRejected';
+    this.correctionId = correctionId;
+  }
+}
+
+export interface ApplyResult {
+  headers: string[];
+  rows: string[][];
+  applied: ProposedCorrection[];
+}
+
 /**
- * Applies the approved corrections to a copy of the document. The input
- * document is not modified.
+ * Applies approved corrections to a copy of the table.
  *
- * The result is checked against the input: if the number of headers or rows
- * changed, the export is refused rather than silently dropping data.
+ * Every correction is re-validated against the actual source. Nothing is
+ * skipped: the first invalid correction refuses the whole operation.
  */
 export function applyCorrections(
-  headers: string[],
-  rows: string[][],
+  table: AnalyzedTable,
+  columnRoles: Record<number, string>,
   corrections: ProposedCorrection[],
-): { headers: string[]; rows: string[][] } {
-  const nextRows = rows.map((row) => row.slice());
+  approvedIds: string[],
+): ApplyResult {
+  const seenIds = new Set<string>();
+  const touched = new Map<string, string>();
+  const approved = new Set(approvedIds);
+  const toApply: ProposedCorrection[] = [];
+
   for (const correction of corrections) {
-    const rowIndex = correction.row - 2;
-    if (rowIndex < 0 || rowIndex >= nextRows.length) continue;
-    const cell = nextRows[rowIndex];
-    if (!cell || correction.columnIndex >= cell.length) continue;
-    cell[correction.columnIndex] = correction.after;
+    if (seenIds.has(correction.id)) {
+      throw new CorrectionRejected(correction.id, 'Correction "' + correction.id + '" appears more than once. The export was refused.');
+    }
+    seenIds.add(correction.id);
+
+    if (correction.documentId !== table.documentId) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Correction "' + correction.id + '" was prepared for a different file. The export was refused.',
+      );
+    }
+
+    if (!approved.has(correction.id)) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Correction "' + correction.id + '" was not approved. The export was refused.',
+      );
+    }
+
+    if (
+      !Number.isInteger(correction.rowIndex) ||
+      correction.rowIndex < 0 ||
+      correction.rowIndex >= table.rows.length
+    ) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Correction "' + correction.id + '" points at row ' + correction.rowIndex + ', which does not exist in the source. The export was refused.',
+      );
+    }
+
+    if (
+      !Number.isInteger(correction.columnIndex) ||
+      correction.columnIndex < 0 ||
+      correction.columnIndex >= table.headers.length
+    ) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Correction "' + correction.id + '" points at column ' + correction.columnIndex + ', which does not exist in the source. The export was refused.',
+      );
+    }
+
+    const expectedRecord = table.physicalRecords[correction.rowIndex];
+    if (expectedRecord !== undefined && correction.record !== expectedRecord) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Correction "' + correction.id + '" claims source row ' + correction.record + ' but that cell is in source row ' + expectedRecord + '. The export was refused.',
+      );
+    }
+
+    const role = columnRoles[correction.columnIndex] ?? 'unknown';
+    if (!(CORRECTABLE_ROLES as readonly string[]).includes(role)) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Correction "' + correction.id + '" targets "' + correction.column + '", which is a protected ' + role + ' field. The export was refused.',
+      );
+    }
+
+    const actual = table.rows[correction.rowIndex][correction.columnIndex] ?? '';
+    if (actual !== correction.before) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Correction "' + correction.id + '" was prepared for a different value than the source now holds. The export was refused.',
+      );
+    }
+
+    const transform = supportedTransform(actual);
+    if (!transform || transform.value !== correction.after) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Correction "' + correction.id + '" proposes a change that is not a supported transformation. The export was refused.',
+      );
+    }
+
+    const cellKey = correction.rowIndex + ':' + correction.columnIndex;
+    const previous = touched.get(cellKey);
+    if (previous !== undefined) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Corrections "' + previous + '" and "' + correction.id + '" both change the same cell. The export was refused.',
+      );
+    }
+    touched.set(cellKey, correction.id);
+
+    toApply.push(correction);
   }
 
-  if (nextRows.length !== rows.length) {
-    throw new Error('Correction refused: the row count changed.');
-  }
-  if (nextRows.some((row, index) => row.length !== rows[index].length)) {
-    throw new Error('Correction refused: a row lost a cell.');
+  const nextRows = table.rows.map((row) => row.slice());
+  for (const correction of toApply) {
+    nextRows[correction.rowIndex][correction.columnIndex] = correction.after;
   }
 
-  return { headers: headers.slice(), rows: nextRows };
+  if (nextRows.length !== table.rows.length) {
+    throw new CorrectionRejected(null, 'The export was refused because the row count changed.');
+  }
+  for (let i = 0; i < table.rows.length; i++) {
+    if (nextRows[i].length !== table.rows[i].length) {
+      throw new CorrectionRejected(null, 'The export was refused because a row lost a cell.');
+    }
+  }
+
+  return { headers: table.headers.slice(), rows: nextRows, applied: toApply };
 }
 
 /**
  * Reverts applied corrections using the recorded "before" values.
  */
 export function revertCorrections(
-  headers: string[],
+  table: AnalyzedTable,
   rows: string[][],
   corrections: ProposedCorrection[],
 ): { headers: string[]; rows: string[][] } {
   const nextRows = rows.map((row) => row.slice());
   for (const correction of corrections) {
-    const rowIndex = correction.row - 2;
-    if (rowIndex < 0 || rowIndex >= nextRows.length) continue;
-    const cell = nextRows[rowIndex];
+    if (correction.rowIndex < 0 || correction.rowIndex >= nextRows.length) continue;
+    const cell = nextRows[correction.rowIndex];
     if (!cell || correction.columnIndex >= cell.length) continue;
     cell[correction.columnIndex] = correction.before;
   }
-  return { headers: headers.slice(), rows: nextRows };
+  return { headers: table.headers.slice(), rows: nextRows };
 }
 
 /** Builds the exportable issue report for a correction plan. */
@@ -231,7 +369,7 @@ export function buildCorrectionReport(
     safety: plan.safety,
     corrections: plan.corrections.map((c) => ({
       id: c.id,
-      row: c.row,
+      record: c.record,
       column: c.column,
       role: c.role,
       kind: c.kind,

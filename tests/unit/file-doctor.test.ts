@@ -5,6 +5,7 @@ import {
   inspectCsv,
   reviewedCsv,
   isFormulaRisk,
+  formulaRiskReason,
   MAX_ROWS,
   MAX_BYTES,
   type Report,
@@ -176,5 +177,102 @@ describe('File Doctor parser: CSV format handling', () => {
     expect(report.issues).toHaveLength(0);
     expect(report.groups).toHaveLength(0);
     expect(report.blocked).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* C3: spreadsheet formula injection                                     */
+/* ------------------------------------------------------------------ */
+
+describe('spreadsheet formula risk', () => {
+  it('flags values a spreadsheet could evaluate', () => {
+    for (const value of [
+      '=1+1',
+      '=SUM(A1)',
+      '@SUM(A1)',
+      '+1+1',
+      '-1+1',
+      '+1-2',
+      '-1/2',
+      '+1/2',
+      "=cmd|' /C calc'!A0",
+      "-2+3+cmd|' /C calc'!A0",
+      '+CMD()',
+    ]) {
+      expect(isFormulaRisk(value), value).toBe(true);
+    }
+  });
+
+  it('keeps legitimate numbers safe', () => {
+    for (const value of ['-5', '+3', '-5.99', '+15551234567', '10', '1,234.56', '-1,5', '0.01']) {
+      expect(isFormulaRisk(value), value).toBe(false);
+    }
+  });
+
+  it('keeps legitimate telephone numbers safe', () => {
+    for (const value of ['+1-555-0100', '+44 20 7946 0000', '+1 (555) 010 0000', '+49 30 901820']) {
+      expect(isFormulaRisk(value), value).toBe(false);
+    }
+  });
+
+  it('treats a signed value that is not a number or a telephone number as ambiguous', () => {
+    // "+1-2" and "+1/2" are expressions, not telephone numbers.
+    expect(isFormulaRisk('+1-2')).toBe(true);
+    expect(isFormulaRisk('+1/2')).toBe(true);
+    expect(isFormulaRisk('-1/2')).toBe(true);
+    // Prose that merely starts with a dash is not an expression.
+    expect(isFormulaRisk('- New Arrival')).toBe(false);
+  });
+
+  it('explains why a value was flagged', () => {
+    expect(formulaRiskReason('=1+1')).toMatch(/starts with "="/);
+    expect(formulaRiskReason('@SUM(A1)')).toMatch(/starts with "@"/);
+    expect(formulaRiskReason('+1-2')).toMatch(/not a plain number or a telephone number/);
+    expect(formulaRiskReason('-5')).toBe('');
+  });
+
+  it('flags a formula-like column header and blocks the export', () => {
+    const report = inspectCsv(parseCsv('sku,=cmd|calc,item-name\nA-1,x,Widget'));
+    const headerIssue = report.issues.find((i) => i.code === 'FORMULA_RISK' && i.field === '=cmd|calc');
+    expect(headerIssue).toBeDefined();
+    expect(headerIssue?.severity).toBe('error');
+    expect(report.blocked).toBe(true);
+    expect(() => reviewedCsv(report)).toThrow(/blocked/);
+  });
+
+  it('flags a formula-like data cell and blocks the export', () => {
+    const report = inspectCsv(parseCsv('sku,item-name\nA-1,=1+1'));
+    expect(report.issues.some((i) => i.code === 'FORMULA_RISK')).toBe(true);
+    expect(report.blocked).toBe(true);
+  });
+
+  it('does not flag a safe header or a safe value', () => {
+    const report = inspectCsv(parseCsv('sku,item-name,standard-price\nA-1,Widget,10.00'));
+    expect(report.issues.some((i) => i.code === 'FORMULA_RISK')).toBe(false);
+    expect(report.blocked).toBe(false);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* C8: findings point at the physical source row                       */
+/* ------------------------------------------------------------------ */
+
+describe('physical source rows', () => {
+  it('reports the physical record when the source has instruction rows', () => {
+    const report = inspectCsv(
+      { headers: ['sku', 'item-name'], rows: [['A-1', '']] },
+      { firstDataRecord: 4, recordOf: [4] },
+    );
+    const issue = report.issues.find((i) => i.code === 'MISSING_TITLE');
+    expect(issue?.row).toBe(4);
+  });
+
+  it('reports the header record for a header finding', () => {
+    const report = inspectCsv(
+      { headers: ['sku', '=cmd'], rows: [['A-1', 'x']] },
+      { firstDataRecord: 4, recordOf: [4] },
+    );
+    const issue = report.issues.find((i) => i.code === 'FORMULA_RISK' && i.field === '=cmd');
+    expect(issue?.row).toBe(3);
   });
 });

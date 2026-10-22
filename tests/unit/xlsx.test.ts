@@ -61,6 +61,40 @@ function buildXlsx(
   return zipSync(files);
 }
 
+
+/** Finds the central directory entry for a name and returns its offset. */
+function centralEntryOffset(bytes: Uint8Array, name: string): number {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let i = 0; i < bytes.length - 4; i++) {
+    if (dv.getUint32(i, true) !== 0x02014b50) continue;
+    const nameLength = dv.getUint16(i + 28, true);
+    const extraLength = dv.getUint16(i + 30, true);
+    const commentLength = dv.getUint16(i + 32, true);
+    const entryName = new TextDecoder('utf-8').decode(bytes.subarray(i + 46, i + 46 + nameLength));
+    if (entryName === name) return i;
+    i += 46 + nameLength + extraLength + commentLength;
+  }
+  throw new Error('entry not found: ' + name);
+}
+
+function patchUint32(bytes: Uint8Array, offset: number, value: number): void {
+  new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).setUint32(offset, value, true);
+}
+
+
+/** Builds an archive whose only worksheet uses the given cell reference. */
+function buildWithReference(reference: string): Uint8Array {
+  const sheet =
+    '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+    '<row r="1"><c r="' + reference + '" t="inlineStr"><is><t>x</t></is></c></row>' +
+    '</sheetData></worksheet>';
+  return zipSync({
+    'xl/workbook.xml': strToU8('<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+    'xl/_rels/workbook.xml.rels': strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+    'xl/worksheets/sheet1.xml': strToU8(sheet),
+  });
+}
+
 function colName(index: number): string {
   let name = '';
   let n = index;
@@ -218,5 +252,103 @@ describe('XLSX cell content safety', () => {
     const workbook = await parseWorkbook(bytes);
     expect(workbook.sheets[0].rows[0][0].risk).toBeUndefined();
     expect(workbook.sheets[0].rows[0][1].risk).toBe('bidi-override');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* C7: parser hardening against hostile input                           */
+/* ------------------------------------------------------------------ */
+
+describe('XLSX parser hardening', () => {
+  it('rejects a cell reference that is not a column reference', async () => {
+    await expect(parseWorkbook(buildWithReference('1'))).rejects.toMatchObject({ code: 'INVALID_REFERENCE' });
+  });
+
+  it('rejects a column reference with more letters than any sheet uses', async () => {
+    await expect(parseWorkbook(buildWithReference('ZZZZ1'))).rejects.toMatchObject({ code: 'INVALID_REFERENCE' });
+  });
+
+  it('rejects a cell that appears twice at the same coordinate', async () => {
+    const sheet =
+      '<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+      '<row r="1"><c r="A1" t="inlineStr"><is><t>one</t></is></c><c r="A1" t="inlineStr"><is><t>two</t></is></c></row>' +
+      '</sheetData></worksheet>';
+    const rebuilt = zipSync({
+      'xl/workbook.xml': strToU8('<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+      'xl/_rels/workbook.xml.rels': strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+      'xl/worksheets/sheet1.xml': strToU8(sheet),
+    });
+    await expect(parseWorkbook(rebuilt)).rejects.toMatchObject({ code: 'DUPLICATE_CELL' });
+  });
+
+  it('rejects a column index beyond any real sheet', async () => {
+    await expect(parseWorkbook(buildWithReference('XFD1'))).rejects.toMatchObject({ code: 'COLUMN_LIMIT' });
+  });
+
+  it('returns a negative index for a reference that is not a column', () => {
+    expect(columnRefToIndex('')).toBe(-1);
+    expect(columnRefToIndex('12')).toBe(-1);
+    expect(columnRefToIndex('ABCD1')).toBe(-1);
+  });
+
+  it('rejects a worksheet that points at a part which is not in the archive', async () => {
+    const rebuilt = zipSync({
+      'xl/workbook.xml': strToU8('<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+      'xl/_rels/workbook.xml.rels': strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet9.xml"/></Relationships>'),
+    });
+    await expect(parseWorkbook(rebuilt)).rejects.toMatchObject({ code: 'INCONSISTENT_WORKBOOK' });
+  });
+
+  it('rejects a worksheet with no relationship at all', async () => {
+    const rebuilt = zipSync({
+      'xl/workbook.xml': strToU8('<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="S" sheetId="1" r:id="rId9"/></sheets></workbook>'),
+      'xl/_rels/workbook.xml.rels': strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+      'xl/worksheets/sheet1.xml': strToU8('<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>'),
+    });
+    await expect(parseWorkbook(rebuilt)).rejects.toMatchObject({ code: 'INCONSISTENT_WORKBOOK' });
+  });
+
+  it('rejects an archive path that tries to escape the archive root', async () => {
+    const bytes = buildXlsx([{ name: 'S', rows: [['a']] }]);
+    // Add an entry whose name escapes the root.
+    const hostile = zipSync({
+      'xl/workbook.xml': strToU8('<?xml version="1.0"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+      'xl/_rels/workbook.xml.rels': strToU8('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'),
+      'xl/worksheets/sheet1.xml': strToU8('<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/></worksheet>'),
+      '../../escape.xml': strToU8('<evil/>'),
+    });
+    await expect(parseWorkbook(hostile)).rejects.toMatchObject({ code: 'ZIP_CORRUPT' });
+  });
+
+  it('rejects an archive that lies about the size of a part', async () => {
+    const bytes = buildXlsx([{ name: 'S', rows: [['a']] }]);
+    const copy = bytes.slice();
+    const offset = centralEntryOffset(copy, 'xl/worksheets/sheet1.xml');
+    // Claim the part is far smaller than it really is.
+    patchUint32(copy, offset + 24, 1);
+    await expect(parseWorkbook(copy)).rejects.toMatchObject({ code: 'ZIP_CORRUPT' });
+  });
+
+  it('rejects an archive that uses the ZIP64 size marker', async () => {
+    const bytes = buildXlsx([{ name: 'S', rows: [['a']] }]);
+    const copy = bytes.slice();
+    const offset = centralEntryOffset(copy, 'xl/worksheets/sheet1.xml');
+    patchUint32(copy, offset + 24, 0xffffffff);
+    await expect(parseWorkbook(copy)).rejects.toMatchObject({ code: 'ZIP_CORRUPT' });
+  });
+
+  it('rejects a file that is not an archive at all', async () => {
+    await expect(parseWorkbook(strToU8('not a zip file, not even close'))).rejects.toBeInstanceOf(XlsxError);
+  });
+
+  it('never inflates a macro or an external link', async () => {
+    const bytes = buildXlsx([{ name: 'S', rows: [['a']] }], {
+      'xl/vbaProject.bin': 'PK macro payload',
+      'xl/externalLinks/externalLink1.xml': '<externalLink/>',
+    });
+    const workbook = await parseWorkbook(bytes);
+    expect(workbook.sheets).toHaveLength(1);
+    // The macro part is not present in anything the reader produced.
+    expect(workbook.sheets[0].rows[0][0].value).toBe('a');
   });
 });

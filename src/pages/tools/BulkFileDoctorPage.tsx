@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ToolLayout } from '../../components/layout/ToolLayout';
 import {
   parseCsv,
   inspectCsv,
-  serializeCsv,
+  serializeRecords,
   withIssues,
   MAX_BYTES,
   type Csv,
@@ -17,13 +17,12 @@ import {
   emptySchemaRegistry,
   skuColumnIndex,
   type TemplateAnalysis,
-  type FieldRole,
 } from '../../lib/bulk/templates';
 import {
   parseAmazonReport,
   groupErrors,
   matchErrorsToSource,
-  errorKey,
+  MAX_REPORT_BYTES,
   type AmazonProcessingReport,
   type SkuErrorMatch,
   type UnmatchedError,
@@ -34,6 +33,8 @@ import {
   buildCorrectionReport,
   type ProposedCorrection,
 } from '../../lib/bulk/corrections';
+import { buildAnalyzedTable, planExport, exportRecords, type AnalyzedTable } from '../../lib/bulk/source';
+import { createOperationGuard } from '../../lib/bulk/operation';
 import syntheticFixture from '../../lib/bulk/fixtures/synthetic-processing-report.json';
 
 function saveFile(name: string, body: string | BlobPart, mime: string) {
@@ -67,10 +68,11 @@ const RISK_DETAIL: Record<string, string> = {
 
 export function BulkFileDoctorPage() {
   const [file, setFile] = useState<File | null>(null);
+  const [table, setTable] = useState<AnalyzedTable | null>(null);
   const [report, setReport] = useState<Report | null>(null);
-  const [csv, setCsv] = useState<Csv | null>(null);
   const [name, setName] = useState('bulk');
   const [error, setError] = useState('');
+  const [exportError, setExportError] = useState('');
   const [busy, setBusy] = useState(false);
   const [workbook, setWorkbook] = useState<XlsxWorkbook | null>(null);
   const [sheetIndex, setSheetIndex] = useState(0);
@@ -82,19 +84,28 @@ export function BulkFileDoctorPage() {
   const [amazonNote, setAmazonNote] = useState('');
   const [matches, setMatches] = useState<SkuErrorMatch[]>([]);
   const [unmatched, setUnmatched] = useState<UnmatchedError[]>([]);
+  const [rowsByError, setRowsByError] = useState<Map<string, number[]>>(new Map());
+
+  /**
+   * Every file operation carries an identifier. A slow operation that finishes
+   * after a newer one has started is discarded, so the file the user picked
+   * last is always the file on screen.
+   */
+  const fileOps = useRef(createOperationGuard());
+  const reportOps = useRef(createOperationGuard());
 
   const columnRoles = useMemo(() => {
-    if (!csv) return {} as Record<number, string>;
+    if (!table) return {} as Record<number, string>;
     const roles: Record<number, string> = {};
     if (template && template.status === 'mapped') {
       for (const mapping of template.mappings) roles[mapping.index] = mapping.role;
     }
     return roles;
-  }, [csv, template]);
+  }, [table, template]);
 
   const plan = useMemo(
-    () => (csv ? planCorrections(csv.headers, csv.rows, columnRoles) : null),
-    [csv, columnRoles],
+    () => (table ? planCorrections(table, columnRoles) : null),
+    [table, columnRoles],
   );
 
   const approvedCorrections = useMemo(
@@ -102,31 +113,72 @@ export function BulkFileDoctorPage() {
     [plan, approved],
   );
 
+  const exportPlan = useMemo(() => (table ? planExport(table) : null), [table]);
+
   const groups = useMemo(
-    () => groupErrors(report?.issues ?? [], amazon?.errors ?? []),
-    [report, amazon],
+    () => groupErrors(report?.issues ?? [], amazon?.errors ?? [], { amazonSourceRows: rowsByError }),
+    [report, amazon, rowsByError],
   );
 
-  const applySheet = (wb: XlsxWorkbook, index: number) => {
+  const resetFileState = () => {
+    setTable(null);
+    setReport(null);
+    setTemplate(null);
+    setWorkbook(null);
+    setSheetIndex(0);
+    setHeader(null);
+    setApproved({});
+    setApproveAll(false);
+    setAmazon(null);
+    setAmazonNote('');
+    setMatches([]);
+    setUnmatched([]);
+    setRowsByError(new Map());
+    setExportError('');
+  };
+
+  const applyTable = (
+    nextTable: AnalyzedTable,
+    extraIssues: Issue[],
+    detection: HeaderDetection | null,
+    nextTemplate: TemplateAnalysis,
+  ) => {
+    const nextCsv: Csv = { headers: nextTable.headers, rows: nextTable.rows };
+    setTable(nextTable);
+    setHeader(detection);
+    setTemplate(nextTemplate);
+    setReport(
+      withIssues(
+        inspectCsv(nextCsv, {
+          firstDataRecord: nextTable.headerRecord + 1,
+          recordOf: nextTable.physicalRecords,
+        }),
+        extraIssues,
+      ),
+    );
+    setApproved({});
+    setApproveAll(false);
+    setMatches([]);
+    setUnmatched([]);
+  };
+
+  const loadSheet = (wb: XlsxWorkbook, index: number, op: number) => {
     const sheet = wb.sheets[index];
     if (!sheet) return;
     const grid = sheet.rows.map((row) => row.map((cell) => cell.value));
     const detection = detectHeaderRow(grid);
     const headerIndex = detection ? detection.headerRowIndex : 0;
-    const headers = grid[headerIndex] ?? [];
-    const rows = grid.slice(headerIndex + 1);
 
-    // Findings that only exist for spreadsheet sources.
     const extra: Issue[] = [];
     sheet.rows.forEach((row, rowIndex) => {
       row.forEach((cell, colIndex) => {
-        const rowNumber = rowIndex - headerIndex + 2;
-        if (rowNumber < 2) return;
-        const field = headers[colIndex] ?? `column-${colIndex + 1}`;
+        const record = rowIndex + 1;
+        if (record <= headerIndex) return;
+        const field = (grid[headerIndex] ?? [])[colIndex] ?? 'column-' + (colIndex + 1);
         if (cell.formula !== undefined) {
           if (cell.hasCachedValue) {
             extra.push({
-              row: rowNumber,
+              row: record,
               field,
               code: 'FORMULA_CACHED',
               severity: 'warning',
@@ -135,7 +187,7 @@ export function BulkFileDoctorPage() {
             });
           } else {
             extra.push({
-              row: rowNumber,
+              row: record,
               field,
               code: 'FORMULA_CELL',
               severity: 'error',
@@ -146,7 +198,7 @@ export function BulkFileDoctorPage() {
         }
         if (cell.risk) {
           extra.push({
-            row: rowNumber,
+            row: record,
             field,
             code: 'MALICIOUS_CELL',
             severity: cell.risk === 'too-long' ? 'warning' : 'error',
@@ -157,30 +209,22 @@ export function BulkFileDoctorPage() {
       });
     });
 
-    const nextCsv: Csv = { headers, rows };
-    const nextTemplate = analyseTemplate(headers);
-    setCsv(nextCsv);
-    setHeader(detection);
-    setTemplate(nextTemplate);
-    setReport(withIssues(inspectCsv(nextCsv), extra));
-    setApproved({});
-    setApproveAll(false);
-    setMatches([]);
-    setUnmatched([]);
+    const nextTable = buildAnalyzedTable(grid, headerIndex, 'xlsx-sheet', {
+      sheetName: sheet.name,
+      sheetCount: wb.sheets.length,
+      sheetRecords: sheet.sourceRowCount,
+      droppedRecords: sheet.truncatedRows,
+      droppedColumns: 0,
+    });
+    applyTable(nextTable, extra, detection, analyseTemplate(nextTable.headers));
+    if (!fileOps.current.isCurrent(op)) return;
   };
 
   const inspect = async (selected?: File) => {
-    setReport(null);
-    setCsv(null);
+    const op = fileOps.current.begin();
+    reportOps.current.begin();
+    resetFileState();
     setError('');
-    setWorkbook(null);
-    setTemplate(null);
-    setAmazon(null);
-    setAmazonNote('');
-    setMatches([]);
-    setUnmatched([]);
-    setApproved({});
-    setApproveAll(false);
     setFile(null);
     if (!selected) return;
     setBusy(true);
@@ -207,61 +251,71 @@ export function BulkFileDoctorPage() {
       }
       const stem =
         selected.name.replace(/\.(csv|xlsx)$/i, '').replace(/[^a-z0-9_-]/gi, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'bulk';
-      setName(stem);
-      setFile(selected);
 
       if (isXlsx) {
         const wb = await readWorkbookFile(selected);
+        if (!fileOps.current.isCurrent(op)) return;
         setWorkbook(wb);
         setSheetIndex(0);
-        applySheet(wb, 0);
+        setName(stem);
+        setFile(selected);
+        loadSheet(wb, 0, op);
         return;
       }
 
       const encoding = await sniffEncoding(selected);
+      if (!fileOps.current.isCurrent(op)) return;
       if (encoding === 'utf16le' || encoding === 'utf16be') {
         setError('This file is UTF-16 encoded. Re-save it as UTF-8 CSV and upload it again. The file was not loaded.');
         return;
       }
-      const parsed = parseCsv(await selected.text());
+      const text = await selected.text();
+      if (!fileOps.current.isCurrent(op)) return;
+
+      const parsed = parseCsv(text);
       const allRows = [parsed.headers, ...parsed.rows];
       const detection = detectHeaderRow(allRows);
-      const nextCsv: Csv =
-        detection && detection.headerRowIndex > 0
-          ? { headers: allRows[detection.headerRowIndex], rows: allRows.slice(detection.headerRowIndex + 1) }
-          : { headers: parsed.headers, rows: parsed.rows };
-      setCsv(nextCsv);
-      setHeader(detection);
-      const nextTemplate = analyseTemplate(nextCsv.headers);
-      setTemplate(nextTemplate);
-      setReport(inspectCsv(nextCsv));
-      setApproved({});
+      const headerIndex = detection ? detection.headerRowIndex : 0;
+      const nextTable = buildAnalyzedTable(allRows, headerIndex, 'csv');
+      setName(stem);
+      setFile(selected);
+      applyTable(nextTable, [], detection, analyseTemplate(nextTable.headers));
     } catch (e) {
+      if (!fileOps.current.isCurrent(op)) return;
       if (e instanceof XlsxError) setError(e.message);
       else setError(e instanceof Error ? e.message : 'Unable to read file.');
     } finally {
-      setBusy(false);
+      if (fileOps.current.isCurrent(op)) setBusy(false);
     }
   };
 
   const loadAmazonReport = async (selected?: File, synthetic = false) => {
+    const op = reportOps.current.begin();
+    const fileOp = fileOps.current.current();
     setAmazon(null);
     setAmazonNote('');
     setMatches([]);
     setUnmatched([]);
-    if (!selected && !synthetic) return;
+    setRowsByError(new Map());
+    const file = selected;
+    if (!file && !synthetic) return;
     try {
+      if (!synthetic && file) {
+        if (file.size > MAX_REPORT_BYTES) {
+          setError(`The processing report is ${mb(file.size)} MB. The limit is ${mb(MAX_REPORT_BYTES)} MB. The file was not loaded.`);
+          return;
+        }
+      }
       let raw: unknown = syntheticFixture;
-      if (!synthetic) {
-        const text = await selected!.text();
-        // A processing report is usually a tab-delimited text file; a JSON
-        // document is also accepted.
+      if (!synthetic && file) {
+        const text = await file.text();
         try {
           raw = JSON.parse(text);
         } catch {
           raw = text;
         }
       }
+      if (!reportOps.current.isCurrent(op) || !fileOps.current.isCurrent(fileOp)) return;
       const parsed = parseAmazonReport(raw);
       if (!parsed) {
         setError('This document is not recognised as a processing report. The file was not used.');
@@ -273,19 +327,21 @@ export function BulkFileDoctorPage() {
           ? 'Synthetic example loaded. These entries were invented for testing and are not Amazon output.'
           : 'This adapter has not been validated against genuine Amazon output. Codes are shown exactly as they appear in the supplied document.',
       );
-      if (csv) {
-        const skuColumn = skuColumnIndex(csv.headers);
+      if (table) {
+        const skuColumn = skuColumnIndex(table.headers);
         if (skuColumn < 0) {
           setMatches([]);
           setUnmatched(parsed.errors.map((error) => ({ error, reason: 'no-sku-in-report' as const })));
         } else {
-          const result = matchErrorsToSource(parsed.errors, skuColumn, csv.rows);
+          const result = matchErrorsToSource(parsed.errors, skuColumn, table.rows, table.physicalRecords);
           setMatches(result.matches);
           setUnmatched(result.unmatched);
+          setRowsByError(result.rowsByError);
         }
       }
     } catch {
-      setError('That processing report could not be read as JSON.');
+      if (!reportOps.current.isCurrent(op)) return;
+      setError('That processing report could not be read.');
     }
   };
 
@@ -293,11 +349,25 @@ export function BulkFileDoctorPage() {
   const warnings = report?.issues.filter((x) => x.severity === 'warning').length || 0;
   const affected = report ? new Set(report.issues.map((x) => x.row)).size : 0;
   const sheet = workbook?.sheets[sheetIndex];
+  const hasCorrections = (plan?.corrections.length ?? 0) > 0;
+  const exportBlocked = report?.blocked === true || exportPlan?.allowed === false;
+  const needsApproval = hasCorrections && approvedCorrections.length === 0;
 
   const exportCorrectedCsv = () => {
-    if (!csv) return;
-    const corrected = applyCorrections(csv.headers, csv.rows, approvedCorrections);
-    saveFile(name + '-corrected.csv', serializeCsv(corrected), 'text/csv;charset=utf-8');
+    if (!table || !plan || !exportPlan) return;
+    if (!exportPlan.allowed) {
+      setExportError(exportPlan.reason ?? 'The export was refused.');
+      return;
+    }
+    try {
+      const selected = plan.corrections.filter((c) => approved[c.id]);
+      const result = applyCorrections(table, columnRoles, selected, selected.map((c) => c.id));
+      const records = exportRecords(table, result.rows);
+      saveFile(name + '-corrected.csv', serializeRecords(records), 'text/csv;charset=utf-8');
+      setExportError('');
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : 'The export was refused.');
+    }
   };
 
   const exportOriginal = async () => {
@@ -353,7 +423,7 @@ export function BulkFileDoctorPage() {
               onChange={event => {
                 const index = Number(event.target.value);
                 setSheetIndex(index);
-                applySheet(workbook, index);
+                loadSheet(workbook, index, fileOps.current.current());
               }}
             >
               {workbook.sheets.map((s, index) => (
@@ -368,10 +438,10 @@ export function BulkFileDoctorPage() {
           </section>
         )}
 
-        {report && (
+        {report && table && (
           <>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {([['CSV rows', report.csv.rows.length], ['Affected rows', affected], ['Errors', errors], ['Warnings', warnings]] as const).map(([label, value]) => (
+              {([['CSV rows', table.rows.length], ['Affected rows', affected], ['Errors', errors], ['Warnings', warnings]] as const).map(([label, value]) => (
                 <div className="border rounded-xl bg-gray-50 p-4" key={label}>
                   <p className="text-xs text-gray-500">{label}</p>
                   <p className="text-2xl font-bold" data-testid={'stat-' + label.replace(/\s+/g, '-').toLowerCase()}>{value}</p>
@@ -388,14 +458,14 @@ export function BulkFileDoctorPage() {
 
             {header && header.skippedRows > 0 && (
               <p className="text-sm text-gray-600" data-testid="file-doctor-header-note">
-                Header row detected at row {header.headerRowIndex + 1}. {header.skippedRows} row(s) above it were skipped. {header.reason}
+                Header row detected at source row {table.headerRecord}. {header.skippedRows} row(s) above it were kept in the source and are preserved in an export. {header.reason}
               </p>
             )}
 
             {sheet && sheet.truncated && (
               <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3" data-testid="file-doctor-truncation">
-                Sheet &quot;{sheet.name}&quot; contains {sheet.sourceRowCount} rows. Only the first {sheet.rows.length} were analysed
-                ({sheet.truncatedRows} row(s) beyond the 5,000 row limit were skipped).
+                Sheet &quot;{sheet.name}&quot; contains {sheet.sourceRowCount} rows. Only the first {sheet.rows.length} were read
+                ({sheet.truncatedRows} row(s) beyond the 5,000 row limit were not read).
               </p>
             )}
 
@@ -446,9 +516,10 @@ export function BulkFileDoctorPage() {
 
             <section>
               <h2 className="text-lg font-bold mb-2">Issues (first 50)</h2>
+              <p className="text-xs text-gray-500 mb-1">Row numbers are the physical row in the source file.</p>
               <div className="overflow-x-auto border rounded-xl">
                 <table className="text-sm w-full text-left">
-                  <thead className="bg-gray-50"><tr><th className="p-3">Row</th><th className="p-3">Severity</th><th className="p-3">Field</th><th className="p-3">Reason</th></tr></thead>
+                  <thead className="bg-gray-50"><tr><th className="p-3">Source row</th><th className="p-3">Severity</th><th className="p-3">Field</th><th className="p-3">Reason</th></tr></thead>
                   <tbody data-testid="file-doctor-issues">
                     {report.issues.slice(0, 50).map((x, i) => (
                       <tr className="border-t" key={i}>
@@ -515,7 +586,7 @@ export function BulkFileDoctorPage() {
                       <ul className="list-disc pl-5">
                         {matches.slice(0, 20).map(m => (
                           <li key={m.sku + m.rows[0]}>
-                            {m.sku} &rarr; row(s) {m.rows.join(', ')}, {m.errors.length} error(s)
+                            {m.sku} &rarr; source row(s) {m.rows.join(', ')}, {m.errors.length} error(s)
                           </li>
                         ))}
                       </ul>
@@ -554,19 +625,20 @@ export function BulkFileDoctorPage() {
               {plan && plan.corrections.length > 0 ? (
                 <div className="overflow-x-auto border rounded-xl mt-2">
                   <table className="text-sm w-full text-left">
-                    <thead className="bg-gray-50"><tr><th className="p-3">Apply</th><th className="p-3">Row</th><th className="p-3">Column</th><th className="p-3">Before</th><th className="p-3">After</th><th className="p-3">Reason</th></tr></thead>
+                    <thead className="bg-gray-50"><tr><th className="p-3">Apply</th><th className="p-3">Source row</th><th className="p-3">Column</th><th className="p-3">Before</th><th className="p-3">After</th><th className="p-3">Reason</th></tr></thead>
                     <tbody>
                       {plan.corrections.map((c: ProposedCorrection) => (
-                        <tr className="border-t" key={c.id}>
+                        <tr className="border-t" key={c.id} data-testid="file-doctor-correction-row">
                           <td className="p-3">
                             <input
                               type="checkbox"
+                              aria-label={'Apply correction to ' + c.column + ' at source row ' + c.record}
                               data-testid={'correction-' + c.id}
                               checked={!!approved[c.id]}
                               onChange={e => setApproved(prev => ({ ...prev, [c.id]: e.target.checked }))}
                             />
                           </td>
-                          <td className="p-3">{c.row}</td>
+                          <td className="p-3">{c.record}</td>
                           <td className="p-3">{c.column}</td>
                           <td className="p-3"><code className="break-all">{JSON.stringify(c.before)}</code></td>
                           <td className="p-3"><code className="break-all">{JSON.stringify(c.after)}</code></td>
@@ -592,8 +664,14 @@ export function BulkFileDoctorPage() {
                 onClick={() => saveFile(name + '-issues.json', JSON.stringify({
                   type: 'preliminary offline ListingAI review',
                   file: name,
-                  rows: report.csv.rows.length,
-                  headerRow: header ? header.headerRowIndex + 1 : 1,
+                  rows: table.rows.length,
+                  headerRecord: table.headerRecord,
+                  instructionRecords: table.instructionRecords.length,
+                  physicalRecords: table.physicalRecords,
+                  sourceKind: table.kind,
+                  sheetName: table.sheetName,
+                  sheetCount: table.sheetCount,
+                  lossy: table.lossy,
                   template: template
                     ? template.status === 'mapped'
                       ? { id: template.adapter.id, confidence: template.confidence, roles: template.mappings.map(m => ({ header: m.header, role: m.role })) }
@@ -603,6 +681,7 @@ export function BulkFileDoctorPage() {
                   groups: report.groups,
                   issues: report.issues,
                   errorGroups: groups,
+                  exportPlan,
                   amazonReport: amazon
                     ? {
                         adapterId: amazon.adapterId,
@@ -638,7 +717,7 @@ export function BulkFileDoctorPage() {
                 }}>
                 Download correction review report
               </button>
-              <button type="button" data-testid="file-doctor-reviewed" disabled={report.blocked || !plan || (plan.corrections.length > 0 && approvedCorrections.length === 0)}
+              <button type="button" data-testid="file-doctor-reviewed" disabled={exportBlocked || needsApproval}
                 className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm disabled:bg-gray-300"
                 onClick={exportCorrectedCsv}>
                 Download corrected CSV ({approvedCorrections.length} approved)
@@ -648,6 +727,20 @@ export function BulkFileDoctorPage() {
                   onClick={() => void exportOriginal()}>
                   Download original file (unchanged)
                 </button>
+              )}
+              {exportPlan && exportPlan.allowed && (
+                <div className="text-xs text-gray-600" data-testid="file-doctor-export-caveats">
+                  <p className="font-semibold">What this export contains</p>
+                  <ul className="list-disc pl-5">
+                    {exportPlan.caveats.map(c => <li key={c}>{c}</li>)}
+                  </ul>
+                </div>
+              )}
+              {exportPlan && !exportPlan.allowed && (
+                <p role="alert" data-testid="file-doctor-export-reason" className="text-red-700 text-sm">{exportPlan.reason}</p>
+              )}
+              {exportError && (
+                <p role="alert" data-testid="file-doctor-export-error" className="text-red-700 text-sm">{exportError}</p>
               )}
               {report.blocked && (
                 <p role="alert" data-testid="file-doctor-blocked" className="text-red-700 text-sm">
