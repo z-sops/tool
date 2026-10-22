@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('ExplorePage', () => {
   test('loads with products and search', async ({ page }) => {
@@ -129,5 +129,24 @@ test.describe('MyResearchPage', () => {
     await page.click('button:has-text("Analyses")');
     await page.click('button:has-text("Listings")');
     await page.click('button:has-text("Notes")');
+  });
+
+  test('research saving persists an analysis into My Research', async ({ page }) => {
+    // The Listing Analyzer writes a saved analysis to browser storage.
+    await page.goto('/tools/amazon-listing-analyzer');
+    await page.fill('input[placeholder="Enter your product title"]', 'Regression Fixture Water Bottle');
+    await page.fill('input[placeholder="Bullet point 1"]', 'DOUBLE-WALL INSULATION - Keeps drinks cold for 24 hours');
+    await page.click('button:has-text("Analyze Listing")');
+    await expect(page.locator('text=Overall Score')).toBeVisible();
+    await page.click('button:has-text("Save to My Research")');
+    await expect(page.locator('text=Saved to My Research')).toBeVisible();
+
+    const stored = await page.evaluate(() => window.localStorage.getItem('nichescout_saved_analyses'));
+    expect(stored, 'the analysis was written to browser storage').toBeTruthy();
+
+    await page.goto('/my-research');
+    await page.click('button:has-text("Analyses")');
+    await expect(page.locator('text=LISTING Analysis').first()).toBeVisible();
+    await expect(page.locator('text=Regression Fixture Water Bottle').first()).toBeVisible();
   });
 });

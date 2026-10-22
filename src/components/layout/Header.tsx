@@ -9,6 +9,7 @@ export function Header() {
     { path: '/explore', label: 'Explore' },
     { path: '/learn', label: 'Learn' },
     { path: '/create', label: 'Create' },
+    { path: '/tools/amazon-bulk-file-doctor', label: 'File Doctor' },
     { path: '/compare', label: 'Compare' },
     { path: '/my-research', label: 'My Research' },
   ];

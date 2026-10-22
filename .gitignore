@@ -47,3 +47,6 @@ build/
 *.log
 
 .vercel
+
+# Local browser demonstration output (screenshots, summary.json)
+demo-output
