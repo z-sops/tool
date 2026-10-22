@@ -11,9 +11,15 @@ import { TermsOfService } from './pages/legal/TermsOfService';
 import { AboutPage } from './pages/legal/AboutPage';
 import { NotFound } from './pages/NotFound';
 import { useSEO } from './hooks/useSEO';
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 
 // Tool Pages
+// The Bulk File Doctor pulls in the workbook reader and the template, error
+// and correction engines. It is loaded on demand so the other tools and the
+// marketing pages do not pay for it.
+const BulkFileDoctorPage = lazy(() =>
+  import('./pages/tools/BulkFileDoctorPage').then((m) => ({ default: m.BulkFileDoctorPage })),
+);
 import { ProfitCalculatorPage } from './pages/tools/ProfitCalculatorPage';
 import { ROICalculatorPage } from './pages/tools/ROICalculatorPage';
 import { PricingCalculatorPage } from './pages/tools/PricingCalculatorPage';
@@ -50,6 +56,14 @@ function App() {
               <Route path="/my-research" element={<MyResearchPage />} />
               
               {/* Tool Pages */}
+              <Route
+                path="/tools/amazon-bulk-file-doctor"
+                element={
+                  <Suspense fallback={<div className="p-8 text-sm text-gray-500">Loading the Bulk File Doctor&hellip;</div>}>
+                    <BulkFileDoctorPage />
+                  </Suspense>
+                }
+              />
               <Route path="/tools/amazon-profit-calculator" element={<ProfitCalculatorPage />} />
               <Route path="/tools/amazon-roi-calculator" element={<ROICalculatorPage />} />
               <Route path="/tools/amazon-pricing-calculator" element={<PricingCalculatorPage />} />

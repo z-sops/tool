@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures';
 
 test.describe('Mobile Navigation', () => {
   test('mobile menu opens and closes', async ({ page }) => {
@@ -51,6 +51,7 @@ test.describe('Mobile Pages', () => {
       '/tools/amazon-bullet-checker',
       '/tools/product-research-checklist',
       '/tools/niche-analysis',
+      '/tools/amazon-bulk-file-doctor',
     ];
 
     for (const url of toolPages) {
