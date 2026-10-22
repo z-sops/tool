@@ -68,6 +68,74 @@ function buildXlsx(
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+/**
+ * Builds a workbook whose worksheets carry their rows at explicit Excel row
+ * numbers, so a worksheet can omit blank rows the way a real spreadsheet does.
+ *
+ * `sheets` gives the physical row of every row of the sheet, in order.
+ */
+function buildXlsxAtRows(
+  sheets: { name: string; rowNumbers: number[]; rows: string[][] }[],
+): Buffer {
+  const files: Record<string, Uint8Array> = {};
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  sheets.forEach((sheet, index) => {
+    const rows = sheet.rows
+      .map((row, r) => {
+        const cells = row
+          .map((value, c) => {
+            const ref = colName(c) + String(sheet.rowNumbers[r]);
+            if (value === '') return `<c r="${ref}"/>`;
+            return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${esc(value)}</t></is></c>`;
+          })
+          .join('');
+        return `<row r="${sheet.rowNumbers[r]}">${cells}</row>`;
+      })
+      .join('');
+    files[`xl/worksheets/sheet${index + 1}.xml`] = strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows}</sheetData></worksheet>`,
+    );
+  });
+  files['xl/workbook.xml'] = strToU8(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets
+      .map((s, i) => `<sheet name="${esc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`)
+      .join('')}</sheets></workbook>`,
+  );
+  files['xl/_rels/workbook.xml.rels'] = strToU8(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets
+      .map((_, i) => `<Relationship Id="rId${i + 1}" Target="worksheets/sheet${i + 1}.xml"/>`)
+      .join('')}</Relationships>`,
+  );
+  files['[Content_Types].xml'] = strToU8(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>`,
+  );
+  return Buffer.from(zipSync(files));
+}
+
+/**
+ * Replaces the read of one named file with a read the test releases by hand.
+ *
+ * Reading a processing report is asynchronous. The test needs to start that
+ * read, change the selected worksheet while it is still in flight, and only
+ * then let it finish, so the race is deterministic rather than timing
+ * dependent.
+ */
+async function deferFileRead(page: import('@playwright/test').Page, fileName: string) {
+  await page.addInitScript((name) => {
+    const original = File.prototype.text;
+    File.prototype.text = function (this: File) {
+      if (this.name !== name) return original.call(this);
+      return new Promise<string>((resolve, reject) => {
+        (window as unknown as { __releaseDeferredRead?: () => void }).__releaseDeferredRead = () => {
+          original.call(this).then(resolve, reject);
+        };
+      });
+    };
+  }, fileName);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Amazon Bulk File Doctor' })).toBeVisible();
+}
+
 /** Records anything that could carry seller data out of the page. */
 function watchForLeaks(page: import('@playwright/test').Page) {
   const leaks: string[] = [];
@@ -425,5 +493,143 @@ test.describe('Bulk File Doctor (browser)', () => {
     await expect(page.getByTestId('stat-csv-rows')).toHaveText('2');
     const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
     expect(bodyWidth).toBeLessThanOrEqual(376);
+  });
+
+  /* ---------------- R3-1: processing report versus worksheet switching ---------------- */
+
+  test('a processing report that finishes after a worksheet switch never matches the worksheet it left', async ({ page }) => {
+    await deferFileRead(page, 'slow-report.json');
+
+    // Sheet A holds the SKU at Excel row 2, sheet B holds the same SKU at
+    // Excel row 9. A match calculated for A therefore names a different row
+    // than a match calculated for B, which makes a stale match visible.
+    await upload(
+      page,
+      'sheets.xlsx',
+      buildXlsxAtRows([
+        { name: 'SheetA', rowNumbers: [1, 2], rows: [['seller-sku', 'item-name'], ['SHARED-SKU', 'From A']] },
+        { name: 'SheetB', rowNumbers: [1, 9], rows: [['seller-sku', 'item-name'], ['SHARED-SKU', 'From B']] },
+      ]),
+      XLSX_MIME,
+    );
+    const sheetSelect = page.getByTestId('file-doctor-sheet');
+    await expect(sheetSelect).toBeVisible();
+    await expect(sheetSelect).toHaveValue('0');
+
+    // Start the import against sheet A. The read is held open by the test.
+    await page.setInputFiles('[data-testid="file-doctor-amazon-upload"]', {
+      name: 'slow-report.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(
+        JSON.stringify({ errors: [{ message: 'invalid', sku: 'SHARED-SKU', errorCode: '90220' }] }),
+        'utf8',
+      ),
+    });
+    await page.waitForFunction(() => typeof (window as unknown as { __releaseDeferredRead?: () => void }).__releaseDeferredRead === 'function');
+
+    // The seller moves to sheet B while the report is still being read.
+    await sheetSelect.selectOption('1');
+    await expect(sheetSelect).toHaveValue('1');
+
+    // Only now does the old import finish.
+    await page.evaluate(() => (window as unknown as { __releaseDeferredRead?: () => void }).__releaseDeferredRead?.());
+    await page.waitForTimeout(750);
+
+    // No association calculated for sheet A may be shown on sheet B.
+    await expect(page.getByTestId('file-doctor-amazon-errors')).toHaveCount(0);
+    await expect(page.locator('text=SHARED-SKU')).toHaveCount(0);
+  });
+
+  test('a processing report is reconciled again against the worksheet the seller moved to', async ({ page }) => {
+    await upload(
+      page,
+      'sheets.xlsx',
+      buildXlsxAtRows([
+        { name: 'SheetA', rowNumbers: [1, 2], rows: [['seller-sku', 'item-name'], ['SHARED-SKU', 'From A']] },
+        { name: 'SheetB', rowNumbers: [1, 9], rows: [['seller-sku', 'item-name'], ['SHARED-SKU', 'From B']] },
+      ]),
+      XLSX_MIME,
+    );
+    const sheetSelect = page.getByTestId('file-doctor-sheet');
+    await expect(sheetSelect).toBeVisible();
+
+    await page.setInputFiles('[data-testid="file-doctor-amazon-upload"]', {
+      name: 'report.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(
+        JSON.stringify({ errors: [{ message: 'invalid', sku: 'SHARED-SKU', errorCode: '90220' }] }),
+        'utf8',
+      ),
+    });
+    await expect(page.getByTestId('file-doctor-amazon-errors')).toBeVisible();
+    // The match belongs to sheet A, whose data is at Excel row 2.
+    await expect(page.getByTestId('file-doctor-amazon-errors')).toContainText('source row(s): 2');
+
+    // After the switch the report is reconciled again, so the row is sheet B's.
+    await sheetSelect.selectOption('1');
+    await expect(sheetSelect).toHaveValue('1');
+    await expect(page.getByTestId('file-doctor-amazon-errors')).toContainText('source row(s): 9');
+    await expect(page.getByTestId('file-doctor-amazon-errors')).not.toContainText('source row(s): 2');
+  });
+
+  test('duplicate and overlapping SKUs are matched against the worksheet on screen', async ({ page }) => {
+    await upload(
+      page,
+      'sheets.xlsx',
+      buildXlsxAtRows([
+        {
+          name: 'SheetA',
+          rowNumbers: [1, 2, 3],
+          rows: [['seller-sku', 'item-name'], ['DUP-SKU', 'From A'], ['DUP-SKU', 'From A again']],
+        },
+        {
+          name: 'SheetB',
+          rowNumbers: [1, 7, 8],
+          rows: [['seller-sku', 'item-name'], ['DUP-SKU', 'From B'], ['DUP-SKU', 'From B again']],
+        },
+      ]),
+      XLSX_MIME,
+    );
+    const sheetSelect = page.getByTestId('file-doctor-sheet');
+    await expect(sheetSelect).toBeVisible();
+
+    await page.setInputFiles('[data-testid="file-doctor-amazon-upload"]', {
+      name: 'report.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(
+        JSON.stringify({ errors: [{ message: 'invalid', sku: 'DUP-SKU', errorCode: '90220' }] }),
+        'utf8',
+      ),
+    });
+    await expect(page.getByTestId('file-doctor-amazon-errors')).toContainText('source row(s): 2, 3');
+
+    await sheetSelect.selectOption('1');
+    await expect(sheetSelect).toHaveValue('1');
+    await expect(page.getByTestId('file-doctor-amazon-errors')).toContainText('source row(s): 7, 8');
+    await expect(page.getByTestId('file-doctor-amazon-errors')).not.toContainText('source row(s): 2, 3');
+  });
+
+  /* ---------------- R3-2: physical worksheet coordinates ---------------- */
+
+  test('a sparse worksheet reports its findings at the physical worksheet rows', async ({ page }) => {
+    // Instruction row at Excel row 1, the real headers at Excel row 5 and the
+    // data at Excel row 9.
+    await upload(
+      page,
+      'sparse.xlsx',
+      buildXlsxAtRows([
+        {
+          name: 'Listings',
+          rowNumbers: [1, 5, 9],
+          rows: [['Instructions'], ['seller-sku', 'item-name'], ['A-1', 'Widget']],
+        },
+      ]),
+      XLSX_MIME,
+    );
+    await expect(page.getByTestId('stat-csv-rows')).toHaveText('1');
+
+    // The header is reported at its physical row, not at the position it had
+    // among the rows the file carried.
+    await expect(page.getByTestId('file-doctor-header-note')).toContainText('Header row detected at source row 5');
   });
 });

@@ -160,10 +160,21 @@ export function planCorrections(
   }
 
   table.rows.forEach((row, rowIndex) => {
+    // The physical row of this record in the seller's file. A correction
+    // without it cannot state where it applies, so it is not proposed at all
+    // rather than guessed.
+    const record = table.physicalRecords[rowIndex];
+    if (record === undefined) {
+      skipped.push({
+        record: rowIndex + 1,
+        column: '(row)',
+        reason: 'The physical row of this record could not be established, so no correction was proposed for it.',
+      });
+      return;
+    }
     row.forEach((value, columnIndex) => {
       const column = table.headers[columnIndex] ?? 'column-' + (columnIndex + 1);
       const role = columnRoles[columnIndex] ?? 'unknown';
-      const record = table.physicalRecords[rowIndex] ?? rowIndex + 2;
 
       if (!(CORRECTABLE_ROLES as readonly string[]).includes(role)) {
         if (isTrimmable(value)) {
@@ -182,8 +193,9 @@ export function planCorrections(
       if (!transform) return;
 
       corrections.push({
-        // The identifier carries the document fingerprint, so an identifier
-        // from one file can never authorise a correction in another.
+        // The identifier carries the scoped document identity, so an identifier
+        // from one upload or one worksheet can never authorise a correction
+        // in another.
         id: 'd' + table.documentId + '-r' + record + 'c' + columnIndex,
         documentId: table.documentId,
         record,
@@ -344,7 +356,13 @@ export function applyCorrections(
     }
 
     const expectedRecord = table.physicalRecords[correction.rowIndex];
-    if (expectedRecord !== undefined && correction.record !== expectedRecord) {
+    if (expectedRecord === undefined) {
+      throw new CorrectionRejected(
+        correction.id,
+        'Correction "' + correction.id + '" cannot be mapped to a physical row of the source, so it was refused.',
+      );
+    }
+    if (correction.record !== expectedRecord) {
       throw new CorrectionRejected(
         correction.id,
         'Correction "' + correction.id + '" claims source row ' + correction.record + ' but that cell is in source row ' + expectedRecord + '. The export was refused.',

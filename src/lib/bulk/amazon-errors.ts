@@ -142,6 +142,10 @@ export interface SkuMatchResult {
  *
  * The source row numbering follows the document: row 1 is the header, so the
  * first data row is row 2.
+ *
+ * When a physical row mapping is supplied it must cover every source row. A
+ * mapping that does not is refused rather than partly applied, because a row
+ * that cannot be located cannot be reported to the seller.
  */
 export function matchErrorsToSource(
   errors: AmazonReportedError[],
@@ -149,6 +153,12 @@ export function matchErrorsToSource(
   sourceRows: string[][],
   physicalRecords?: number[],
 ): SkuMatchResult {
+  if (physicalRecords && physicalRecords.length < sourceRows.length) {
+    throw new Error(
+      'The physical row mapping covers ' + physicalRecords.length + ' of ' + sourceRows.length +
+        ' source rows, so the reported errors cannot be located.',
+    );
+  }
   const rowBySku = new Map<string, number[]>();
   sourceRows.forEach((row, index) => {
     const raw = row[skuColumnIndex];

@@ -38,8 +38,15 @@ import {
   planExport,
   buildExportPayload,
   gateExport,
+  newUploadId,
   type AnalyzedTable,
 } from '../../lib/bulk/source';
+import { collectWorksheetIssues } from '../../lib/bulk/worksheet';
+import {
+  captureReportBinding,
+  isReportBindingCurrent,
+  reconcileReport,
+} from '../../lib/bulk/report-binding';
 import { createOperationGuard } from '../../lib/bulk/operation';
 import syntheticFixture from '../../lib/bulk/fixtures/synthetic-processing-report.json';
 
@@ -64,13 +71,6 @@ async function sniffEncoding(file: File): Promise<'utf16le' | 'utf16be' | 'utf8'
   if (head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf) return 'utf8';
   return 'unknown';
 }
-
-const RISK_DETAIL: Record<string, string> = {
-  'bidi-override': 'The cell contains bidirectional override characters, which can hide text from a human reviewer.',
-  'control-character': 'The cell contains control characters that can break a CSV or truncate a value downstream.',
-  'zero-width': 'The cell contains zero-width characters that hide text inside an apparently normal value.',
-  'too-long': 'The cell is unusually long and was kept as-is.',
-};
 
 export function BulkFileDoctorPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -105,6 +105,22 @@ export function BulkFileDoctorPage() {
    * the slower one put the previous worksheet back on screen.
    */
   const sheetOps = useRef(createOperationGuard());
+  /**
+   * The scope of the current upload. An approval is bound to it, so two
+   * uploads of the same file never share an approval.
+   */
+  const uploadIdRef = useRef('');
+  /**
+   * The table that is on screen, kept in a ref so an asynchronous handler can
+   * always reconcile against the table the seller is looking at rather than
+   * the one that happened to be on screen when the handler started.
+   */
+  const tableRef = useRef<AnalyzedTable | null>(null);
+  /**
+   * The processing report that is loaded, kept in a ref so it can be
+   * reconciled again against a new table after a worksheet change.
+   */
+  const loadedReport = useRef<AmazonProcessingReport | null>(null);
 
   const columnRoles = useMemo(() => {
     if (!table) return {} as Record<number, string>;
@@ -147,6 +163,22 @@ export function BulkFileDoctorPage() {
     setUnmatched([]);
     setRowsByError(new Map());
     setExportError('');
+    tableRef.current = null;
+    loadedReport.current = null;
+  };
+
+  /**
+   * Re-associates the loaded processing report with a table.
+   *
+   * The report is always reconciled again against the table it is shown with,
+   * so a report that is still applicable to a new worksheet is matched again
+   * and the matches of the previous worksheet are never reused.
+   */
+  const reconcileWithReport = (target: AnalyzedTable | null) => {
+    const result = reconcileReport(target, loadedReport.current);
+    setMatches(result.matches);
+    setUnmatched(result.unmatched);
+    setRowsByError(result.rowsByError);
   };
 
   const applyTable = (
@@ -156,13 +188,17 @@ export function BulkFileDoctorPage() {
     nextTemplate: TemplateAnalysis,
   ) => {
     const nextCsv: Csv = { headers: nextTable.headers, rows: nextTable.rows };
+    tableRef.current = nextTable;
     setTable(nextTable);
     setHeader(detection);
     setTemplate(nextTemplate);
     setReport(
       withIssues(
         inspectCsv(nextCsv, {
-          firstDataRecord: nextTable.headerRecord + 1,
+          // The physical rows of the source, which are not the positions of the
+          // analysed rows: a worksheet may omit blank rows.
+          headerRecord: nextTable.headerRecord,
+          firstDataRecord: nextTable.physicalRecords[0] ?? nextTable.headerRecord + 1,
           recordOf: nextTable.physicalRecords,
         }),
         extraIssues,
@@ -172,61 +208,27 @@ export function BulkFileDoctorPage() {
     setApproveAll(false);
     setMatches([]);
     setUnmatched([]);
+    setRowsByError(new Map());
     // The row mapping belongs to the sheet it was produced from. Switching
     // worksheets must not leave the previous sheet's rows attached to the
-    // processing report.
-    setRowsByError(new Map());
+    // processing report, so the report is reconciled again against this table.
+    reconcileWithReport(nextTable);
   };
 
   const loadSheet = (wb: XlsxWorkbook, index: number, op: number) => {
     const sheetOp = sheetOps.current.begin();
+    // A worksheet change invalidates every processing-report import that is
+    // still in flight: such an import belongs to the worksheet the seller left.
+    reportOps.current.begin();
     const sheet = wb.sheets[index];
     if (!sheet) return;
     const grid = sheet.rows.map((row) => row.map((cell) => cell.value));
     const detection = detectHeaderRow(grid);
     const headerIndex = detection ? detection.headerRowIndex : 0;
 
-    const extra: Issue[] = [];
-    sheet.rows.forEach((row, rowIndex) => {
-      if (rowIndex < headerIndex) return;
-      row.forEach((cell, colIndex) => {
-        // The physical Excel row number of the cell, which is not the position
-        // of the row in the file: worksheet XML may omit blank rows.
-        const record = cell.rowNumber || sheet.rowNumbers[rowIndex] || rowIndex + 1;
-        const field = (grid[headerIndex] ?? [])[colIndex] ?? 'column-' + (colIndex + 1);
-        if (cell.formula !== undefined) {
-          if (cell.hasCachedValue) {
-            extra.push({
-              row: record,
-              field,
-              code: 'FORMULA_CACHED',
-              severity: 'warning',
-              cause: 'manual-review',
-              detail: 'The cell contains an Excel formula. The formula was not evaluated; the value stored in the file was used.',
-            });
-          } else {
-            extra.push({
-              row: record,
-              field,
-              code: 'FORMULA_CELL',
-              severity: 'error',
-              cause: 'manual-review',
-              detail: 'The cell contains an Excel formula with no stored result. Replace it with a static value.',
-            });
-          }
-        }
-        if (cell.risk) {
-          extra.push({
-            row: record,
-            field,
-            code: 'MALICIOUS_CELL',
-            severity: cell.risk === 'too-long' ? 'warning' : 'error',
-            cause: 'manual-review',
-            detail: RISK_DETAIL[cell.risk] ?? 'The cell content was flagged as risky.',
-          });
-        }
-      });
-    });
+    // Every cell of the worksheet is checked, including the instruction rows
+    // above the header, and every finding carries the physical Excel row.
+    const extra: Issue[] = collectWorksheetIssues(sheet, headerIndex);
 
     void createAnalyzedTable(
       grid,
@@ -238,9 +240,15 @@ export function BulkFileDoctorPage() {
         sheetRecords: sheet.physicalRowCount,
         droppedRecords: sheet.truncatedRows,
         droppedColumns: 0,
-        // The physical row of every data row, so a finding points at the right
-        // line of the worksheet even when rows are omitted.
+        // The physical row of the header, of every instruction row and of
+        // every data row, so a finding points at the right line of the
+        // worksheet even when rows are omitted.
+        headerRecord: sheet.rowNumbers[headerIndex],
+        instructionRecordsPhysical: sheet.rowNumbers.slice(0, headerIndex),
         physicalRecords: sheet.rowNumbers.slice(headerIndex + 1),
+        // The scope an approval is bound to: this upload and this worksheet.
+        uploadId: uploadIdRef.current,
+        worksheetId: index + ':' + sheet.name,
       },
     ).then((nextTable) => {
       if (!fileOps.current.isCurrent(op)) return;
@@ -255,6 +263,9 @@ export function BulkFileDoctorPage() {
     const op = fileOps.current.begin();
     reportOps.current.begin();
     resetFileState();
+    // Every upload gets its own scope, so an approval given for one upload
+    // never authorises a correction in another, even for identical content.
+    uploadIdRef.current = newUploadId();
     setError('');
     setFile(null);
     if (!selected) return;
@@ -309,7 +320,10 @@ export function BulkFileDoctorPage() {
       const headerIndex = detection ? detection.headerRowIndex : 0;
       // The CSV is given the same cryptographic document identity as a
       // workbook, so an approval is bound to this file and to no other.
-      const nextTable = await createAnalyzedTable(allRows, headerIndex, 'csv');
+      const nextTable = await createAnalyzedTable(allRows, headerIndex, 'csv', {
+        uploadId: uploadIdRef.current,
+        worksheetId: 'csv',
+      });
       if (!fileOps.current.isCurrent(op)) return;
       setName(stem);
       setFile(selected);
@@ -325,18 +339,22 @@ export function BulkFileDoctorPage() {
 
   const loadAmazonReport = async (selected?: File, synthetic = false) => {
     const op = reportOps.current.begin();
-    const fileOp = fileOps.current.current();
+    // The import belongs to the source and the worksheet that are on screen
+    // right now. If either changes while the file is being read, the import is
+    // discarded instead of attaching its matches to a different table.
+    const binding = captureReportBinding(fileOps.current.current(), sheetOps.current.current());
     setAmazon(null);
     setAmazonNote('');
     setMatches([]);
     setUnmatched([]);
     setRowsByError(new Map());
+    loadedReport.current = null;
     const file = selected;
     if (!file && !synthetic) return;
     try {
       if (!synthetic && file) {
         if (file.size > MAX_REPORT_BYTES) {
-          setError(`The processing report is ${mb(file.size)} MB. The limit is ${mb(MAX_REPORT_BYTES)} MB. The file was not loaded.`);
+          setError('The processing report is ' + mb(file.size) + ' MB. The limit is ' + mb(MAX_REPORT_BYTES) + ' MB. The file was not loaded.');
           return;
         }
       }
@@ -349,30 +367,31 @@ export function BulkFileDoctorPage() {
           raw = text;
         }
       }
-      if (!reportOps.current.isCurrent(op) || !fileOps.current.isCurrent(fileOp)) return;
+      if (!reportOps.current.isCurrent(op)) return;
+      // The source and the worksheet must still be the ones this import was
+      // started for.
+      if (
+        !isReportBindingCurrent(binding, {
+          fileOp: fileOps.current.current(),
+          sheetOp: sheetOps.current.current(),
+        })
+      ) {
+        return;
+      }
       const parsed = parseAmazonReport(raw);
       if (!parsed) {
         setError('This document is not recognised as a processing report. The file was not used.');
         return;
       }
+      loadedReport.current = parsed;
       setAmazon(parsed);
       setAmazonNote(
         synthetic
           ? 'Synthetic example loaded. These entries were invented for testing and are not Amazon output.'
           : 'This adapter has not been validated against genuine Amazon output. Codes are shown exactly as they appear in the supplied document.',
       );
-      if (table) {
-        const skuColumn = skuColumnIndex(table.headers);
-        if (skuColumn < 0) {
-          setMatches([]);
-          setUnmatched(parsed.errors.map((error) => ({ error, reason: 'no-sku-in-report' as const })));
-        } else {
-          const result = matchErrorsToSource(parsed.errors, skuColumn, table.rows, table.physicalRecords);
-          setMatches(result.matches);
-          setUnmatched(result.unmatched);
-          setRowsByError(result.rowsByError);
-        }
-      }
+      // The report is reconciled against the table that is on screen now.
+      reconcileWithReport(tableRef.current);
     } catch {
       if (!reportOps.current.isCurrent(op)) return;
       setError('That processing report could not be read.');

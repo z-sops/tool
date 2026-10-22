@@ -34,7 +34,7 @@ import {
   exportRecords,
   buildExportPayload,
   gateExport,
-  computeDocumentId,
+  computeContentId,
   createAnalyzedTable,
 } from '../../src/lib/bulk/source';
 
@@ -649,8 +649,8 @@ describe('R2 export gate: every exported cell is scanned', () => {
 });
 
 describe('R2-C5: approvals are bound to one document', () => {
-  it('derives the document identity from a full-length SHA-256 digest', async () => {
-    const id = await computeDocumentId([['seller-sku', 'item-name'], ['A-1', 'Widget']]);
+  it('derives the content identity from a full-length SHA-256 digest', async () => {
+    const id = await computeContentId([['seller-sku', 'item-name'], ['A-1', 'Widget']]);
     // A SHA-256 digest is 64 hexadecimal characters. A short non-cryptographic
     // fingerprint would be collidable on purpose and must never be used to
     // authorise a change.
@@ -659,17 +659,20 @@ describe('R2-C5: approvals are bound to one document', () => {
   });
 
   it('gives two different documents different digests', async () => {
-    const a = await computeDocumentId([['item-name'], ['  A  ']]);
-    const b = await computeDocumentId([['item-name'], ['  B  ']]);
+    const a = await computeContentId([['item-name'], ['  A  ']]);
+    const b = await computeContentId([['item-name'], ['  B  ']]);
     expect(a).not.toBe(b);
     expect(a).toMatch(/^[0-9a-f]{64}$/);
     expect(b).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('gives a table built from the records a matching identity', async () => {
+  it('gives a table built from the records a matching content identity', async () => {
     const grid = [['item-name'], ['  A  ']];
-    const table = await createAnalyzedTable(grid, 0, 'csv');
-    expect(table.documentId).toBe(await computeDocumentId(grid));
+    const table = await createAnalyzedTable(grid, 0, 'csv', {
+      uploadId: 'upload-1',
+      worksheetId: 'csv',
+    });
+    expect(table.contentId).toBe(await computeContentId(grid));
     expect(table.documentId).toMatch(/^[0-9a-f]{64}$/);
     expect(table.identityUnavailable).toBeUndefined();
   });

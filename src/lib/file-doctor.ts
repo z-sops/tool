@@ -128,15 +128,22 @@ export function serializeCsv(doc: Csv): string {
  * row. It is 2 for a plain file whose first record is the header, and larger
  * when the source has instruction rows above the header. `recordOf` optionally
  * overrides the number for individual rows.
+ *
+ * `headerRecord` is the 1-based physical record number of the header row. It
+ * defaults to `firstDataRecord - 1`, which is the header of a conventional
+ * sequential record. A worksheet that omits blank rows has a header that is
+ * not directly above its first data row, so it states the header row itself.
  */
 export interface InspectOptions {
   firstDataRecord?: number;
   recordOf?: number[];
+  headerRecord?: number;
 }
 
 export function inspectCsv(csv: Csv, options: InspectOptions = {}): Report {
   const firstDataRecord = options.firstDataRecord ?? 2;
   const recordOf = options.recordOf;
+  const headerRecord = options.headerRecord ?? firstDataRecord - 1;
   const sku = aliases(csv.headers, ['sku','seller-sku','item-sku']);
   const title = aliases(csv.headers, ['title','item-name','product-name','product-title']);
   const price = aliases(csv.headers, ['price','standard-price','your-price']);
@@ -160,7 +167,7 @@ export function inspectCsv(csv: Csv, options: InspectOptions = {}): Report {
   csv.headers.forEach((header, index) => {
     if (!isFormulaRisk(header)) return;
     add(
-      firstDataRecord - 1,
+      headerRecord,
       header || 'column-' + (index + 1),
       'FORMULA_RISK',
       'error',
