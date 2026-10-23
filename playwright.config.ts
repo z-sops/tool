@@ -19,7 +19,9 @@ export default defineConfig({
   },
   globalSetup: './tests/global-setup.ts',
   webServer: {
-    command: `npx vite preview --strictPort --host 127.0.0.1 --port ${process.env.LISTINGAI_TEST_PORT || '5181'}`,
+    command: process.env.LISTINGAI_E2E_PREBUILT === '1'
+      ? `npx vite preview --strictPort --host 127.0.0.1 --port ${process.env.LISTINGAI_TEST_PORT || '5181'}`
+      : `npm run build && npx vite preview --strictPort --host 127.0.0.1 --port ${process.env.LISTINGAI_TEST_PORT || '5181'}`,
     url: `http://127.0.0.1:${process.env.LISTINGAI_TEST_PORT || '5181'}`,
     reuseExistingServer: false,
     timeout: 120000,

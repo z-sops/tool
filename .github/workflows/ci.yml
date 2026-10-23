@@ -46,6 +46,7 @@ jobs:
         env:
           LISTINGAI_TEST_HOST: 127.0.0.1
           LISTINGAI_TEST_PORT: 5181
+          LISTINGAI_E2E_PREBUILT: '1'
 
       - name: Upload Playwright traces
         if: failure()
