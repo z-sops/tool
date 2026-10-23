@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { assertListingAI } from '../lib/file-doctor';
 
 /**
  * Positive application-identity preflight.
@@ -17,14 +18,10 @@ test('served app is ListingAI', async ({ page, baseURL }) => {
 
 /**
  * Negative-control test: a deliberately incorrect HTML document should
- * fail the preflight.
- *
- * This test is marked as skipped in normal runs because it requires a
- * specially crafted HTML document. It is enabled manually to verify that
- * the preflight correctly rejects foreign applications.
+ * fail the preflight assertion.
  */
-test.skip('preflight rejects a foreign application', async ({ page }) => {
-  await page.setContent(`
+test('assertListingAI rejects a foreign HTML document', () => {
+  const foreignHtml = `
     <!doctype html>
     <html lang="en">
       <head>
@@ -32,10 +29,25 @@ test.skip('preflight rejects a foreign application', async ({ page }) => {
       </head>
       <body>Not ListingAI</body>
     </html>
-  `);
-  // The preflight should reject this document because it lacks
-  // the required ListingAI identity markers.
-  const response = await page.goto('/');
-  // The globalSetup preflight will throw before the test body runs,
-  // so this test primarily documents the expected behavior.
+  `;
+  expect(() => assertListingAI(foreignHtml, 'http://example.com')).toThrow(
+    /Preflight failed: http:\/\/example\.com did not serve the ListingAI application/
+  );
+});
+
+/**
+ * Positive control: valid ListingAI document passes.
+ */
+test('assertListingAI accepts a valid ListingAI document', () => {
+  const validHtml = `
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta name="listingai:app" content="listingai-web">
+        <meta name="application-name" content="ListingAI">
+      </head>
+      <body>ListingAI content</body>
+    </html>
+  `;
+  expect(() => assertListingAI(validHtml, 'http://example.com')).not.toThrow();
 });

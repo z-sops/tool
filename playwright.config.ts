@@ -17,6 +17,7 @@ export default defineConfig({
     baseURL: `http://127.0.0.1:${process.env.LISTINGAI_TEST_PORT || '5181'}`,
     trace: 'on-first-retry',
   },
+  globalSetup: require.resolve('./tests/global-setup.ts'),
   webServer: {
     command: `npm run build && npx vite preview --strictPort --host 127.0.0.1 --port ${process.env.LISTINGAI_TEST_PORT || '5181'}`,
     url: `http://127.0.0.1:${process.env.LISTINGAI_TEST_PORT || '5181'}`,
