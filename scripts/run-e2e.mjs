@@ -17,23 +17,16 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { findFreePort } from './free-port.mjs';
 
-console.log('DEBUG: Starting run-e2e.mjs');
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-console.log('DEBUG: here =', here);
 const repoRoot = path.resolve(here, '..');
-console.log('DEBUG: repoRoot =', repoRoot);
 
 const preferred = Number(process.env.LISTINGAI_TEST_PORT || 5181);
 const host = process.env.LISTINGAI_TEST_HOST || '127.0.0.1';
-console.log('DEBUG: preferred =', preferred, 'host =', host);
 const port = await findFreePort(preferred, 40, host);
-console.log('DEBUG: port =', port);
 
 const playwrightCli = path.join(repoRoot, 'node_modules', 'playwright', 'cli.js');
-console.log('DEBUG: playwrightCli =', playwrightCli);
 const args = process.argv.slice(2);
-console.log('DEBUG: args =', args);
 
 const child = spawn(process.execPath, [playwrightCli, 'test', ...args], {
   cwd: repoRoot,
@@ -48,10 +41,11 @@ const child = spawn(process.execPath, [playwrightCli, 'test', ...args], {
 });
 
 child.on('exit', (code, signal) => {
-  console.log('DEBUG: child exit', code, signal);
   if (signal) {
     process.kill(process.pid, signal);
     return;
   }
   process.exit(code ?? 1);
 });
+
+
