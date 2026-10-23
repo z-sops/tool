@@ -12,14 +12,14 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'list',
+  reporter: 'html',
   use: {
     baseURL: `http://127.0.0.1:${process.env.LISTINGAI_TEST_PORT || '5181'}`,
     trace: 'on-first-retry',
   },
   globalSetup: './tests/global-setup.ts',
   webServer: {
-    command: `npm run build && npx vite preview --strictPort --host 127.0.0.1 --port ${process.env.LISTINGAI_TEST_PORT || '5181'}`,
+    command: `npx vite preview --strictPort --host 127.0.0.1 --port ${process.env.LISTINGAI_TEST_PORT || '5181'}`,
     url: `http://127.0.0.1:${process.env.LISTINGAI_TEST_PORT || '5181'}`,
     reuseExistingServer: false,
     timeout: 120000,
