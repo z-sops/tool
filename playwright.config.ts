@@ -1,5 +1,9 @@
 import { defineConfig } from '@playwright/test';
 
+const testPort = process.env.LISTINGAI_TEST_PORT || '5181';
+const testHost = process.env.LISTINGAI_TEST_HOST || '127.0.0.1';
+const previewUrl = `http://${testHost}:${testPort}`;
+
 export default defineConfig({
   testDir: './tests',
   // Only e2e specs here — unit tests (tests/unit/*.test.ts) run via vitest.
@@ -8,16 +12,19 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
-  reporter: 'list',
+  reporter: 'html',
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: `http://127.0.0.1:${process.env.LISTINGAI_TEST_PORT || '5181'}`,
     trace: 'on-first-retry',
   },
+  globalSetup: './tests/global-setup.ts',
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 30000,
+    command: process.env.LISTINGAI_E2E_PREBUILT === '1'
+      ? `npx vite preview --strictPort --host 127.0.0.1 --port ${process.env.LISTINGAI_TEST_PORT || '5181'}`
+      : `npm run build && npx vite preview --strictPort --host 127.0.0.1 --port ${process.env.LISTINGAI_TEST_PORT || '5181'}`,
+    url: `http://127.0.0.1:${process.env.LISTINGAI_TEST_PORT || '5181'}`,
+    reuseExistingServer: false,
+    timeout: 120000,
   },
   projects: [
     {
@@ -30,3 +37,4 @@ export default defineConfig({
     },
   ],
 });
+
