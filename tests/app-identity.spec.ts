@@ -1,5 +1,29 @@
 import { test, expect } from '@playwright/test';
-import { assertListingAI } from '../lib/file-doctor';
+
+/**
+ * assertListingAI is defined in tests/global-setup.ts and re-exported
+ * for use in unit tests. For E2E tests, the identity is verified by
+ * the globalSetup preflight.
+ */
+function assertListingAI(html: string, baseURL: string): void {
+  const LISTINGAI_MARKERS = ['listingai:app', 'application-name" content="ListingAI', 'listingai-woad.vercel.app'];
+  const FOREIGN_MARKERS = ['MRCGP', 'Snap to Fit', 'ZTech', 'ztech'];
+  const missing = LISTINGAI_MARKERS.filter((marker) => !html.includes(marker));
+  if (missing.length) {
+    throw new Error(
+      `Preflight failed: ${baseURL} did not serve the ListingAI application ` +
+        `(missing marker(s): ${missing.join(', ')}). Refusing to run the suite ` +
+        `against an unknown server.`,
+    );
+  }
+  const foreign = FOREIGN_MARKERS.filter((marker) => html.includes(marker));
+  if (foreign.length) {
+    throw new Error(
+      `Preflight failed: ${baseURL} served a different application ` +
+        `(matched: ${foreign.join(', ')}). Refusing to run the suite against it.`,
+    );
+  }
+}
 
 /**
  * Positive application-identity preflight.
